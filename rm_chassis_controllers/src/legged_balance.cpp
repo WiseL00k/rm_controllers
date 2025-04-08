@@ -6,6 +6,7 @@
 #include "rm_chassis_controllers/vmc/leg_conv.h"
 #include "rm_chassis_controllers/vmc/leg_pos.h"
 #include "rm_chassis_controllers/vmc/leg_spd.h"
+#include "rm_common/math_utilities.h"
 
 #include <unsupported/Eigen/MatrixFunctions>
 #include <rm_common/ros_utilities.h>
@@ -53,16 +54,25 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
       robot_hw->get<hardware_interface::EffortJointInterface>()->getHandle(right_back_leg_joint);
   joint_handles_.push_back(left_wheel_joint_handle_);
   joint_handles_.push_back(right_wheel_joint_handle_);
+  powerLimitJointHandles_.push_back(left_wheel_joint_handle_);
+  powerLimitJointHandles_.push_back(right_wheel_joint_handle_);
+
   if (!controller_nh.getParam("vmc_bias_angle", vmc_bias_angle_))
   {
     ROS_ERROR("Params vmc_bias_angle doesn't given (namespace: %s)", controller_nh.getNamespace().c_str());
     return false;
   }
 
+  if (!controller_nh.getParam("jumpOverTime", jumpOverTime_))
+  {
+    ROS_ERROR("Params jumpOverTime doesn't given (namespace: %s)", controller_nh.getNamespace().c_str());
+    return false;
+  }
+
   XmlRpc::XmlRpcValue xml_coeff;
-  if (!controller_nh.getParam("coeff", xml_coeff))
+  if (!controller_nh.getParam("k_coeff", xml_coeff))
   {  // 注意参数路径
-    ROS_ERROR("Failed to load coefficients!");
+    ROS_ERROR("Failed to load k_coefficients!");
     return -1;
   }
   // 遍历YAML条目
@@ -87,6 +97,14 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
       }
     }
     row++;
+  }
+
+  if (!controller_nh.getParam("power/effort_coeff", powerCoeffEffort_) ||
+      !controller_nh.getParam("power/vel_coeff", powerCoeffVel_) ||
+      !controller_nh.getParam("power/power_offset", powerOffset_))
+  {
+    ROS_ERROR("Failed to load power coefficients!");
+    return -1;
   }
 
   if (controller_nh.hasParam("pid_left_leg"))
@@ -177,6 +195,12 @@ void LeggedBalanceController::moveJoint(const ros::Time& time, const ros::Durati
 {
   updateEstimation(time, period);
 
+  // Check jump
+  if (jumpState_ == IDLE && ros::Time::now() - lastJumpTime_ > ros::Duration(jumpOverTime_) && leg_cmd_.jump == true)
+  {
+    jumpState_ = JumpState::LEG_RETRACTION;
+  }
+
   if (abs(pitch_) > pitchProtectAngle_ || abs(roll_) > rollProtectAngle_)
   {
     balance_mode_ = BalanceMode::SHUTDOWN;
@@ -202,21 +226,23 @@ void LeggedBalanceController::moveJoint(const ros::Time& time, const ros::Durati
   }
 
   // Power limit
-  //  double limit = balanceInterface_->getLeggedBalanceControlCmd()->getPowerLimit();
-  //  double a = 0., b = 0., c = 0.;  // Three coefficients of a quadratic equation in one variable
-  //  for (const auto& joint : powerLimitJointHandles_) {
-  //    double cmd_effort = joint.getCommand();
-  //    double real_vel = joint.getVelocity();
-  //    a += square(cmd_effort);
-  //    b += cmd_effort * real_vel;
-  //    c += abs(real_vel);
-  //  }
-  //  a *= params_.powerCoeffEffort_;
-  //  c = c * params_.powerCoeffVel_ + params_.powerOffset_ - limit;  // offset different from rm_chassis_controller
-  //  double zoom = (square(b) - 4 * a * c) > 0 ? ((-b + sqrt(square(b) - 4 * a * c)) / (2 * a)) : 0.;
-  //  for (auto joint : powerLimitJointHandles_) {
-  //    joint.setCommand(zoom <= 1 && zoom > 0 ? joint.getCommand() * zoom : joint.getCommand());
-  //  }
+  double limit = 60;
+  double a = 0., b = 0., c = 0.;  // Three coefficients of a quadratic equation in one variable
+  for (const auto& joint : powerLimitJointHandles_)
+  {
+    double cmd_effort = joint.getCommand();
+    double real_vel = joint.getVelocity();
+    a += square(cmd_effort);
+    b += cmd_effort * real_vel;
+    c += abs(real_vel);
+  }
+  a *= powerCoeffEffort_;
+  c = c * powerCoeffVel_ + powerOffset_ - limit;  // offset different from rm_chassis_controller
+  double zoom = (square(b) - 4 * a * c) > 0 ? ((-b + sqrt(square(b) - 4 * a * c)) / (2 * a)) : 0.;
+  for (auto joint : powerLimitJointHandles_)
+  {
+    joint.setCommand(zoom <= 1 && zoom > 0 ? joint.getCommand() * zoom : joint.getCommand());
+  }
 }
 
 void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration& period)
@@ -250,11 +276,88 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   Eigen::Matrix<double, 3, 1> p;
   Eigen::Matrix<double, 2, 1> F_leg, F_bl;
   double F_roll, F_gravity, F_inertial;
-  F_leg[0] = pid_left_leg_.computeCommand(leg_cmd_.leg_length - leg_aver, period) - F_length_diff;
-  F_leg[1] = pid_right_leg_.computeCommand(leg_cmd_.leg_length - leg_aver, period) + F_length_diff;
-  F_roll = pid_roll_.computeCommand(0 - roll_, period);
-  F_inertial = 0;
-  F_gravity = 1. / 2 * body_mass_ * g_;
+
+  if (jumpState_ == JumpState::IDLE)
+  {
+    F_leg[0] = pid_left_leg_.computeCommand(leg_cmd_.leg_length - leg_aver, period) - F_length_diff;
+    F_leg[1] = pid_right_leg_.computeCommand(leg_cmd_.leg_length - leg_aver, period) + F_length_diff;
+    F_roll = pid_roll_.computeCommand(0 - roll_, period);
+    F_inertial = 0;
+    F_gravity = 1. / 2 * body_mass_ * g_;
+  }
+  else
+  {
+    switch (jumpState_)
+    {
+      case JumpState::LEG_RETRACTION:
+        F_leg(0) = pid_left_leg_.computeCommand(0.1 - leg_aver, period);
+        F_leg(1) = pid_right_leg_.computeCommand(0.1 - leg_aver, period);
+        F_roll = pid_roll_.computeCommand(0 - roll_, period);
+        F_gravity = (1. / 2 * body_mass_) * g_;
+
+        if (leg_aver < 0.12)
+        {
+          jumpTime_++;
+        }
+        if (jumpTime_ >= 10)
+        {
+          jumpTime_ = 0;
+          jumpState_ = JumpState::JUMP_UP;
+        }
+        break;
+      case JumpState::JUMP_UP:
+        F_leg(0) = pid_left_leg_.computeCommand(0.4 - leg_aver, period);
+        F_leg(1) = pid_right_leg_.computeCommand(0.4 - leg_aver, period);
+        F_roll = pid_roll_.computeCommand(0 - roll_, period);
+        F_gravity = (1. / 2 * body_mass_) * g_;
+
+        if (leg_aver > 0.2)
+        {
+          jumpTime_++;
+        }
+        if (jumpTime_ >= 2)
+        {
+          jumpTime_ = 0;
+          jumpState_ = JumpState::OFF_GROUND;
+        }
+
+        //        F_leg(0) = p1_ * pow(legLength(0), 3) + p2_ * pow(legLength(0), 2) + p3_ * legLength(0) + p4_;
+        //        F_leg(1) = p1_ * pow(legLength(1), 3) + p2_ * pow(legLength(1), 2) + p3_ * legLength(1) + p4_;
+        //        F_roll = pidRoll_.computeCommand(balanceInterface_->getLeggedBalanceControlCmd()->getRollCmd() -
+        //        roll_, period); F_gravity = 0;
+        //
+        //        if (legLength(0) > 0.32 && legLength(1) > 0.32) {
+        //          jumpState_ = JumpState::OFF_GROUND;
+        //        }
+        break;
+      case JumpState::OFF_GROUND:
+        F_leg(0) = pid_left_leg_.computeCommand(0.1 - leg_aver, period);
+        F_leg(1) = pid_right_leg_.computeCommand(0.1 - leg_aver, period);
+        F_roll = 0;
+        F_gravity = 0;
+        if (leg_aver < 0.13)
+        {
+          jumpTime_++;
+        }
+        if (jumpTime_ >= 3)
+        {
+          jumpTime_ = 0;
+          jumpState_ = JumpState::IDLE;
+          lastJumpTime_ = ros::Time::now();
+        }
+
+        //        F_leg(0) = -(p1_ * pow(legLength(0), 3) + p2_ * pow(legLength(0), 2) + p3_ * legLength(0) + p4_);
+        //        F_leg(1) = -(p1_ * pow(legLength(1), 3) + p2_ * pow(legLength(1), 2) + p3_ * legLength(1) + p4_);
+        //        F_roll = 0;
+        //        F_gravity = 0;
+        //
+        //        if (legLength(0) < 0.12 && legLength(1) < 0.12) {
+        //          jumpState_ = JumpState::IDLE;
+        //          lastJumpTime_ = ros::Time::now();
+        //        }
+        break;
+    }
+  }
   // clang-format off
   j << 1, cos(left_pos_[1]), -1,
       -1, cos(right_pos_[1]), 1;
@@ -266,14 +369,17 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   leg_conv(F_bl[0], -u(1) - T_theta_diff, left_angle[0], left_angle[1], left_T);
   leg_conv(F_bl[1], -u(1) + T_theta_diff, right_angle[0], right_angle[1], right_T);
 
-  unstickDetection(time, period, x_[0], x_[1], imu_handle_.getLinearAcceleration()[2], left_spd_[0], left_pos_[0],
-                   F_bl[0], -u(1) - T_theta_diff, right_spd_[0], right_pos_[0], F_bl[1], -u(1) + T_theta_diff);
+  if (jumpState_ == JumpState::IDLE)
+  {
+    unstickDetection(time, period, x_[0], x_[1], imu_handle_.getLinearAcceleration()[2], left_spd_[0], left_pos_[0],
+                     F_bl[0], -u(1) - T_theta_diff, right_spd_[0], right_pos_[0], F_bl[1], -u(1) + T_theta_diff);
+  }
   left_wheel_joint_handle_.setCommand(u(0) - pid_yaw_spd_.getCurrentCmd());
   right_wheel_joint_handle_.setCommand(u(0) + pid_yaw_spd_.getCurrentCmd());
 
   if (start_)
   {
-    if (abs(x_[1]) < 0.1 && abs(x_[5]) < 0.1 && (ros::Time::now() - start_time_) > ros::Duration(0.5))
+    if (abs(x_[1]) < 0.2 && abs(x_[5]) < 0.2 && (ros::Time::now() - start_time_) > ros::Duration(0.1))
     {
       start_ = false;
     }
@@ -429,7 +535,7 @@ void LeggedBalanceController::unstickDetection(const ros::Time& time, const ros:
                                                const double& right_dL0, const double& right_L0, const double& right_F,
                                                const double& right_Tp)
 {
-  static double left_FN, left_P, left_ddzw(0), left_ddL0(0), g(9.81), mw(0.8), lastLeftLegDL0(0), lastLeftLegDDL0(0),
+  static double left_FN, left_P, left_ddzw(0), left_ddL0(0), mw(0.8), lastLeftLegDL0(0), lastLeftLegDDL0(0),
       lastLeftLegDDTheta(0), left_ddtheta(0), lastLeftLegDTheta(0), lpfRatio(0.5);
   static double right_FN, right_P, right_ddzw(0), right_ddL0(0), lastRightLegDL0(0), lastRightLegDDL0(0),
       lastRightLegDDTheta(0), right_ddtheta(0), lastRightLegDTheta(0);
@@ -437,9 +543,9 @@ void LeggedBalanceController::unstickDetection(const ros::Time& time, const ros:
   left_ddL0 = (left_dL0 - lastLeftLegDL0) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastLeftLegDDL0;
   left_ddtheta = (dtheta - lastLeftLegDTheta) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastLeftLegDDTheta;
   left_P = left_F * cos(theta) + (left_Tp * sin(theta) / left_L0);
-  left_ddzw = ddzm + g - left_ddL0 * cos(theta) + 2 * left_dL0 * dtheta * sin(theta) +
+  left_ddzw = ddzm + g_ - left_ddL0 * cos(theta) + 2 * left_dL0 * dtheta * sin(theta) +
               left_L0 * left_ddtheta * sin(theta) + left_L0 * (dtheta * dtheta * cos(theta));
-  left_FN = mw * left_ddzw + mw * g + (left_P);
+  left_FN = mw * left_ddzw + mw * g_ + (left_P);
   lastLeftLegDDL0 = left_ddL0;
   lastLeftLegDL0 = left_dL0;
   lastLeftLegDTheta = dtheta;
@@ -448,9 +554,9 @@ void LeggedBalanceController::unstickDetection(const ros::Time& time, const ros:
   right_ddL0 = (right_dL0 - lastRightLegDL0) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastRightLegDDL0;
   right_ddtheta = (dtheta - lastRightLegDTheta) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastRightLegDDTheta;
   right_P = right_F * cos(theta) + (right_Tp * sin(theta) / right_L0);
-  right_ddzw = ddzm + g - right_ddL0 * cos(theta) + 2 * right_dL0 * dtheta * sin(theta) +
+  right_ddzw = ddzm + g_ - right_ddL0 * cos(theta) + 2 * right_dL0 * dtheta * sin(theta) +
                right_L0 * right_ddtheta * sin(theta) + right_L0 * (dtheta * dtheta * cos(theta));
-  right_FN = mw * right_ddzw + mw * g + (right_P);
+  right_FN = mw * right_ddzw + mw * g_ + (right_P);
   lastRightLegDDL0 = right_ddL0;
   lastRightLegDL0 = right_dL0;
   lastRightLegDTheta = dtheta;
@@ -471,18 +577,18 @@ void LeggedBalanceController::unstickDetection(const ros::Time& time, const ros:
 
   std_msgs::Bool unstickFlag;
 
-  if (left_FN < 10)
+  if (left_FN < 20)
     left_unstick_ = true;
-  //    x_[2] = 0;
   else
     left_unstick_ = false;
-  if (right_FN < 10)
+  if (right_FN < 20)
     right_unstick_ = true;
   else
     right_unstick_ = false;
   if (left_unstick_ && right_unstick_)
   {
     unstickFlag.data = 1;
+    x_[2] = 0;
   }
   else
   {

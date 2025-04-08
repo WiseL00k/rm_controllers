@@ -21,12 +21,10 @@ class LeggedBalanceController
   : public ChassisBase<rm_control::RobotStateInterface, hardware_interface::ImuSensorInterface,
                        hardware_interface::EffortJointInterface>
 {
-  enum BalanceMode
-  {
-    NORMAL,
-    BLOCK,
-    SHUTDOWN,
-  };
+  // clang-format off
+  enum BalanceMode {NORMAL, BLOCK, SHUTDOWN};
+  enum JumpState {IDLE, LEG_RETRACTION, JUMP_UP, OFF_GROUND};
+  // clang-format on
 
 public:
   LeggedBalanceController() = default;
@@ -76,6 +74,7 @@ private:
   hardware_interface::ImuSensorHandle imu_handle_;
   hardware_interface::JointHandle left_wheel_joint_handle_, right_wheel_joint_handle_, left_front_leg_joint_handle_,
       left_back_leg_joint_handle_, right_front_leg_joint_handle_, right_back_leg_joint_handle_;
+  std::vector<hardware_interface::JointHandle> powerLimitJointHandles_;
 
   geometry_msgs::Vector3 angular_vel_base_;
   double roll_, pitch_, yaw_, yaw_total_;
@@ -89,6 +88,17 @@ private:
   int i = 0, sample_times_ = 3;
   std::shared_ptr<KalmanFilter<double>> kalmanFilterPtr_;
   std::shared_ptr<MovingAverageFilter<double>> left_averFNPtr_, right_averFNPtr_;
+
+  // Jump
+  int jumpState_ = JumpState::IDLE;
+  ros::Time lastJumpTime_;
+  int jumpTime_;
+  double jumpOverTime_;
+
+  // power
+  double powerCoeffEffort_{};
+  double powerOffset_{};
+  double powerCoeffVel_{};
 
   // pub
   ros::Publisher legLengthPublisher_, legPendulumSupportForcePublisher_, legGroundSupportForcePublisher_,
