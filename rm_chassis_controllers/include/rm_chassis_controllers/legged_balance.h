@@ -22,7 +22,7 @@ class LeggedBalanceController
                        hardware_interface::EffortJointInterface>
 {
   // clang-format off
-  enum BalanceMode {NORMAL, BLOCK, SHUTDOWN};
+  enum BalanceMode {NORMAL, BLOCK, SITDOWN, SHUTDOWN};
   enum JumpState {IDLE, LEG_RETRACTION, JUMP_UP, OFF_GROUND};
   // clang-format on
 
@@ -39,6 +39,7 @@ private:
   void moveJoint(const ros::Time& time, const ros::Duration& period) override;
   void normal(const ros::Time& time, const ros::Duration& period);
   void block(const ros::Time& time, const ros::Duration& period);
+  void sitDown(const ros::Time& time, const ros::Duration& period);
   void shutDown(const ros::Time& time, const ros::Duration& period);
 
   void updateEstimation(const ros::Time& time, const ros::Duration& period);
@@ -65,11 +66,13 @@ private:
 
   int balance_mode_;
   ros::Time block_time_, last_block_time_, start_time_;
+  ros::Time maybeOverturnTime_, lastSitDownTime_;
   double block_angle_, block_duration_, block_velocity_, block_effort_, anti_block_effort_, block_overtime_;
-  double pitchProtectAngle_, rollProtectAngle_;
+  double pitchProtectAngle_, rollProtectAngle_, legProtectLength_, legProtectAngle_;
   bool balance_state_changed_ = false, maybe_block_ = false;
   bool left_unstick_ = false, right_unstick_ = false;
   bool start_ = false;
+  bool maybeOverturn_ = false, overturnStateChanged_ = false;
 
   hardware_interface::ImuSensorHandle imu_handle_;
   hardware_interface::JointHandle left_wheel_joint_handle_, right_wheel_joint_handle_, left_front_leg_joint_handle_,
@@ -93,7 +96,7 @@ private:
   int jumpState_ = JumpState::IDLE;
   ros::Time lastJumpTime_;
   int jumpTime_;
-  double jumpOverTime_;
+  double jumpOverTime_, p1_, p2_, p3_, p4_;
 
   // power
   double powerCoeffEffort_{};
