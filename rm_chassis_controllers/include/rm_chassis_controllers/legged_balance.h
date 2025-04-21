@@ -43,7 +43,8 @@ private:
   void shutDown(const ros::Time& time, const ros::Duration& period);
 
   void updateEstimation(const ros::Time& time, const ros::Duration& period);
-  void unstickDetection(const ros::Time& time, const ros::Duration& period, const double& theta, const double& dtheta,
+  void unstickDetection(const ros::Time& time, const ros::Duration& period, const double& left_theta,
+                        const double& left_dtheta, const double& right_theta, const double& right_dtheta,
                         const double& ddzm, const double& left_dL0, const double& left_L0, const double& left_F,
                         const double& left_Tp, const double& right_dL0, const double& right_L0, const double& right_F,
                         const double& right_Tp);
@@ -51,12 +52,13 @@ private:
   static const int STATE_DIM = 6;
   static const int CONTROL_DIM = 2;
 
-  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> k_{};
+  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> left_k_, right_k_{};
   Eigen::Matrix<double, STATE_DIM, STATE_DIM> a_{}, q_{};
   Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> b_{};
   Eigen::Matrix<double, CONTROL_DIM, CONTROL_DIM> r_{};
-  Eigen::Matrix<double, STATE_DIM, 1> x_;
+  Eigen::Matrix<double, STATE_DIM, 1> left_x_, right_x_;
   double vmc_bias_angle_, left_angle[2], right_angle[2], left_pos_[2], left_spd_[2], right_pos_[2], right_spd_[2];
+  double leg_aver = 0.10;
   double wheel_radius_ = 0.09, wheel_track_ = 0.49;
   double body_mass_ = 11.7, g_ = 9.81;
   double position_des_ = 0;
@@ -69,6 +71,7 @@ private:
   ros::Time maybeOverturnTime_, lastSitDownTime_;
   double block_angle_, block_duration_, block_velocity_, block_effort_, anti_block_effort_, block_overtime_;
   double pitchProtectAngle_, rollProtectAngle_, legProtectLength_, legProtectAngle_;
+  double left_wheel_speed_, right_wheel_speed_;
   bool balance_state_changed_ = false, maybe_block_ = false;
   bool left_unstick_ = false, right_unstick_ = false;
   bool start_ = false;
@@ -77,7 +80,6 @@ private:
   hardware_interface::ImuSensorHandle imu_handle_;
   hardware_interface::JointHandle left_wheel_joint_handle_, right_wheel_joint_handle_, left_front_leg_joint_handle_,
       left_back_leg_joint_handle_, right_front_leg_joint_handle_, right_back_leg_joint_handle_;
-  std::vector<hardware_interface::JointHandle> powerLimitJointHandles_;
 
   geometry_msgs::Vector3 angular_vel_base_;
   double roll_, pitch_, yaw_, yaw_total_;
@@ -97,11 +99,6 @@ private:
   ros::Time lastJumpTime_;
   int jumpTime_;
   double jumpOverTime_, p1_, p2_, p3_, p4_;
-
-  // power
-  double powerCoeffEffort_{};
-  double powerOffset_{};
-  double powerCoeffVel_{};
 
   // pub
   ros::Publisher legLengthPublisher_, legPendulumSupportForcePublisher_, legGroundSupportForcePublisher_,
