@@ -328,16 +328,15 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
     switch (jumpState_)
     {
       case JumpState::LEG_RETRACTION:
-        F_leg(0) = pid_left_leg_.computeCommand(0.1 - left_pos_[0], period);
-        F_leg(1) = pid_right_leg_.computeCommand(0.1 - right_pos_[0], period);
+        F_leg(0) = pid_left_leg_.computeCommand(0.08 - left_pos_[0], period);
+        F_leg(1) = pid_right_leg_.computeCommand(0.08 - right_pos_[0], period);
         F_roll = pid_roll_.computeCommand(0 - roll_, period);
         F_gravity = (1. / 2 * body_mass_) * g_;
-
         if (leg_aver < 0.11)
         {
           jumpTime_++;
         }
-        if (jumpTime_ >= 8)
+        if (jumpTime_ >= 6)
         {
           jumpTime_ = 0;
           jumpState_ = JumpState::JUMP_UP;
