@@ -49,14 +49,14 @@ private:
                         const double& left_Tp, const double& right_dL0, const double& right_L0, const double& right_F,
                         const double& right_Tp);
   geometry_msgs::Twist odometry() override;
-  static const int STATE_DIM = 6;
-  static const int CONTROL_DIM = 2;
+  static const int STATE_DIM = 10;
+  static const int CONTROL_DIM = 4;
 
-  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> left_k_, right_k_{};
+  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> k_{};
   Eigen::Matrix<double, STATE_DIM, STATE_DIM> a_{}, q_{};
   Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> b_{};
   Eigen::Matrix<double, CONTROL_DIM, CONTROL_DIM> r_{};
-  Eigen::Matrix<double, STATE_DIM, 1> left_x_, right_x_;
+  Eigen::Matrix<double, STATE_DIM, 1> x_{};
   double vmc_bias_angle_, left_angle[2], right_angle[2], left_pos_[2], left_spd_[2], right_pos_[2], right_spd_[2];
   double leg_aver = 0.10;
   double wheel_radius_ = 0.09, wheel_track_ = 0.49;
@@ -72,6 +72,7 @@ private:
   double block_angle_, block_duration_, block_velocity_, block_effort_, anti_block_effort_, block_overtime_;
   double pitchProtectAngle_, rollProtectAngle_, legProtectLength_, legProtectAngle_;
   double left_wheel_speed_, right_wheel_speed_;
+  double torque_wheel_k_ = 0.3;
   bool balance_state_changed_ = false, maybe_block_ = false;
   bool left_unstick_ = false, right_unstick_ = false;
   bool start_ = false;
@@ -112,41 +113,18 @@ private:
 
   void legCmdCallback(const rm_msgs::LegCmdConstPtr& msg);
 
-  double coeff[12][4];
+  double coeff[40][6];
 
-  //  double coeff[12][4] = {
-  //    { -544.6490, 552.9494, -235.4140, -13.3712 },   { 6.5588, -12.2738, 0.8614, -4.7964 },
-  //    { 4.1117, -5.3290, 2.4835, -2.0719 },           { 39.8366, -39.8586, 14.5769, -7.01527 },
-  //    { 1.0e+03 * -3.4554, 3.4114, -1.2339, 0.0166 }, { -71.1485, 71.4427, -27.2336, 1.3491 },
-  //    { 51.4494, -44.4102, 14.7482, 1.5240 },         { -7.4005, 7.4072, -3.4394, 0.0424 },
-  //    { -3.0813, 3.0653, -1.1055, -0.0286 },          { -8.8500, 8.7755, -3.1565, -0.1142 },
-  //    { -24.1423, 55.6464, -33.5148, 53.1938 },       { 1.1982, -0.3320, -0.2435, 1.4912 },
-  //  };
-
-  //  double coeff[12][4] = { { -279.0369, 284.7958, -125.8281, -12.7713 },
-  //                          { -13.0658, 8.1306, -6.8578, -4.4015 },
-  //                          { -4.1699, 2.9005, -0.4607, -1.9788 },
-  //                          { 34.5882, -32.6995, 11.2139, -6.2444 },
-  //                          { -3.7530e+03, 3.8683e+03, -1.4714e+03, 142.8657 },
-  //                          { -37.8070, 41.0026, -17.3936, 2.9845 },
-  //                          { 33.6886, -22.1199, 4.5002, 3.8658 },
-  //                          { -20.9614, 22.3360, -9.6694, 0.9324 },
-  //                          { -9.0312, 9.5095, -3.6794, 0.3170 },
-  //                          { -28.8762, 28.6664, -10.3787, 0.8811 },
-  //                          { 542.0842, -413.7672, 92.0506, 174.2199 },
-  //                          { 10.3897, -8.9180, 2.6604, 2.6783 } };
-
-  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> getK(double L0)
+  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> getK(double& l_l, double& l_r)
   {
     Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> k;
-    double m3 = L0 * L0 * L0;
-    double m2 = L0 * L0;
-    double m1 = L0;
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < CONTROL_DIM; i++)
     {
-      for (int j = 0; j < 6; j++)
+      for (int j = 0; j < STATE_DIM; j++)
       {
-        k(i, j) = coeff[i * 6 + j][0] * m3 + coeff[i * 6 + j][1] * m2 + coeff[i * 6 + j][2] * m1 + coeff[i * 6 + j][3];
+        k(i, j) = coeff[i * 10 + j][0] + coeff[i * 10 + j][1] * l_l + coeff[i * 10 + j][2] * l_r +
+                  coeff[i * 10 + j][3] * l_l * l_l + coeff[i * 10 + j][4] * l_l * l_r +
+                  coeff[i * 10 + j][5] * l_r * l_r;
       }
     }
     return k;
