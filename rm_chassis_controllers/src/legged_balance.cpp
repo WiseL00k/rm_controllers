@@ -686,7 +686,6 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   if (overturnStateChanged_)
   {
     ROS_INFO("[balance] Enter SitDown for overturn");
-    yaw_total_ = 0;
     overturnStateChanged_ = false;
     lastSitDownTime_ = time;
   }
@@ -699,6 +698,8 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
       start_ = false;
       x_(0) = 0;
       position_des_ = x_(0);
+      yaw_total_ = 0;
+      yaw_des_ = 0;
       ROS_INFO("[balance] Exit SitDown");
     }
   }
@@ -716,7 +717,7 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   {
     yaw_des_ += vel_cmd_.z * period.toSec();
     x(2) -= yaw_des_;
-    //    x(3) -= vel_cmd_.z;
+    x(3) -= vel_cmd_.z;
   }
   if (state_ != RAW)
   {
@@ -742,7 +743,7 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   F_leg[0] = pid_left_leg_.computeCommand(0.1 - left_pos_[0], period) - F_length_diff;
   F_leg[1] = pid_right_leg_.computeCommand(0.1 - right_pos_[0], period) + F_length_diff;
   F_roll = 0;
-  F_inertial = 0;
+  F_inertial = 0.25 * body_mass_ * leg_aver * x_(3) * x_(1);
   if (!start_)
   {
     F_gravity = 1. / 2 * body_mass_ * g_;
@@ -768,6 +769,9 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   // clang-format on
   p << F_roll, F_gravity, F_inertial;
   F_bl = j * p + F_leg;
+
+  left_wheel_speed_ = u_(0) - pid_yaw_spd_.getCurrentCmd();
+  right_wheel_speed_ = u_(1) + pid_yaw_spd_.getCurrentCmd();
 
   double left_T[2], right_T[2];
   leg_conv(F_bl[0], -T_theta_diff, left_angle[0], left_angle[1], left_T);
