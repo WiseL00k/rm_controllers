@@ -292,20 +292,19 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   auto x = x_;
   // set target state
 
-  if (!left_unstick_ && !right_unstick_)
-  {
-    yaw_des_ += vel_cmd_.z * period.toSec();
-    x(2) -= yaw_des_;
-    //    x(3) -= vel_cmd_.z;
-  }
+  yaw_des_ += vel_cmd_.z * period.toSec();
+  x(2) -= yaw_des_;
+  //    x(3) -= vel_cmd_.z;
+
   if (state_ != RAW)
   {
     x(1) -= vel_cmd_.x;
-    if (!left_unstick_ && !right_unstick_)
-    {
-      position_des_ += vel_cmd_.x * period.toSec();
-    }
   }
+  if (!left_unstick_ && !right_unstick_)
+  {
+    position_des_ += vel_cmd_.x * period.toSec();
+  }
+
   x(0) -= position_des_;
   k_ = getK(left_pos_[0], right_pos_[0]);
   u_ = k_ * (-x);
@@ -713,12 +712,10 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   auto x = x_;
   // set target state
 
-  if (!left_unstick_ && !right_unstick_)
-  {
-    yaw_des_ += vel_cmd_.z * period.toSec();
-    x(2) -= yaw_des_;
-    x(3) -= vel_cmd_.z;
-  }
+  yaw_des_ += vel_cmd_.z * period.toSec();
+  x(2) -= yaw_des_;
+  //    x(3) -= vel_cmd_.z;
+
   if (state_ != RAW)
   {
     x(1) -= vel_cmd_.x;
