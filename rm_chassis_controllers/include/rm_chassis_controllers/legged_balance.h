@@ -94,7 +94,7 @@ private:
   int i = 0, sample_times_ = 3;
   std::shared_ptr<KalmanFilter<double>> kalmanFilterPtr_;
   std::shared_ptr<MovingAverageFilter<double>> left_averFNPtr_, right_averFNPtr_;
-
+  std::shared_ptr<RampFilter<double>> vel_FilterPtr_;
   // Jump
   int jumpState_ = JumpState::IDLE;
   ros::Time lastJumpTime_;

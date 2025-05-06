@@ -172,6 +172,11 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
       return false;
     }
   }
+  if (!controller_nh.getParam("torque_wheel_k", torque_wheel_k_))
+  {
+    ROS_ERROR("Failed to load torque_wheel_k!");
+    return false;
+  }
 
   // Slippage detection
   A_ << 1, 0, 0, 1;
@@ -186,6 +191,8 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
 
   left_averFNPtr_ = std::make_shared<MovingAverageFilter<double>>(5);
   right_averFNPtr_ = std::make_shared<MovingAverageFilter<double>>(5);
+
+  vel_FilterPtr_ = std::make_shared<RampFilter<double>>(1, 0.2);
 
   // sub
   leg_cmd_subscriber_ =
@@ -294,13 +301,17 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
 
   yaw_des_ += vel_cmd_.z * period.toSec();
   x(2) -= yaw_des_;
-  //    x(3) -= vel_cmd_.z;
+
+  //  x(3) -= vel_cmd_.z;
 
   if (state_ != RAW)
   {
-    x(1) -= vel_cmd_.x;
+    vel_FilterPtr_->input(vel_cmd_.x);
+    x(1) -= vel_FilterPtr_->output();
+
+    //    x(1) -= vel_cmd_.x;
   }
-  if (!left_unstick_ && !right_unstick_)
+  if (!left_unstick_ && !right_unstick_ && jumpState_ == JumpState::IDLE)
   {
     position_des_ += vel_cmd_.x * period.toSec();
   }
@@ -310,6 +321,16 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   u_ = k_ * (-x);
   pid_yaw_pos_.computeCommand((yaw_des_ - yaw_total_), period);
   pid_yaw_spd_.computeCommand((pid_yaw_pos_.getCurrentCmd() - angular_vel_base_.z), period);
+
+  //  if (state_ == RAW)
+  //  {
+  //    u_(2) -= k_(2, 2) * (-x(2)) + k_(2, 3) * (-x(3));
+  //    u_(3) -= k_(3, 2) * (-x(2)) + k_(3, 3) * (-x(3));
+  //        u_(2) -= k_(2, 3) * (-x(3));
+  //        u_(3) -= k_(3, 3) * (-x(3));
+  //        u_(2) -= k_(2, 2) * (-x(2));
+  //        u_(3) -= k_(3, 2) * (-x(2));
+  //  }
 
   // Leg control
   Eigen::Matrix<double, 2, 3> j;
@@ -537,6 +558,7 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   double yaw_last = yaw_total_;
   yaw_total_ = yaw_last + angles::shortest_angular_distance(yaw_last, yaw_);
   // update state
+  //  x_[0] = (wheel_radius_ * (left_wheel_joint_handle_.getPosition() + right_wheel_joint_handle_.getPosition()) / 2.0);
   x_[0] += x_hat(0) * period.toSec();
   x_[1] = x_hat(0);
   x_[2] = yaw_total_;
@@ -697,8 +719,8 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
       start_ = false;
       x_(0) = 0;
       position_des_ = x_(0);
-      yaw_total_ = 0;
-      yaw_des_ = 0;
+      //      yaw_total_ = 0;
+      yaw_des_ = yaw_total_;
       ROS_INFO("[balance] Exit SitDown");
     }
   }
