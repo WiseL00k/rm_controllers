@@ -56,11 +56,11 @@ private:
   Eigen::Matrix<double, STATE_DIM, STATE_DIM> a_{}, q_{};
   Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> b_{};
   Eigen::Matrix<double, CONTROL_DIM, CONTROL_DIM> r_{};
-  Eigen::Matrix<double, STATE_DIM, 1> x_{};
+  Eigen::Matrix<double, STATE_DIM, 1> x_{}, x;
   double vmc_bias_angle_, left_angle[2], right_angle[2], left_pos_[2], left_spd_[2], right_pos_[2], right_spd_[2];
   double leg_aver = 0.10;
-  double wheel_radius_ = 0.09, wheel_track_ = 0.49;
-  double body_mass_ = 11.7, g_ = 9.81;
+  double wheel_radius_ = 0.06, wheel_track_ = 0.49;
+  double body_mass_ = 16.7, g_ = 9.81;
   double position_des_ = 0;
   double position_offset_ = 0.;
   double position_clear_threshold_ = 0.;
@@ -71,7 +71,7 @@ private:
   ros::Time maybeOverturnTime_, lastSitDownTime_;
   double block_angle_, block_duration_, block_velocity_, block_effort_, anti_block_effort_, block_overtime_;
   double pitchProtectAngle_, rollProtectAngle_, legProtectLength_, legProtectAngle_;
-  double left_wheel_speed_, right_wheel_speed_;
+  double left_wheel_torque_, right_wheel_torque_;
   double torque_wheel_k_ = 0.3;
   bool balance_state_changed_ = false, maybe_block_ = false;
   bool left_unstick_ = false, right_unstick_ = false;
@@ -83,7 +83,7 @@ private:
       left_back_leg_joint_handle_, right_front_leg_joint_handle_, right_back_leg_joint_handle_;
 
   geometry_msgs::Vector3 angular_vel_base_;
-  double roll_, pitch_, yaw_, yaw_total_;
+  double roll_{}, pitch_{}, yaw_{}, yaw_total_{};
 
   control_toolbox::Pid pid_left_leg_, pid_right_leg_, pid_theta_diff_, pid_length_diff_, pid_roll_, pid_center_gravity_,
       pid_yaw_pos_, pid_yaw_spd_;
@@ -103,8 +103,8 @@ private:
 
   // pub
   ros::Publisher legLengthPublisher_, legPendulumSupportForcePublisher_, legGroundSupportForcePublisher_,
-      leftUnStickPublisher_, rightUnStickPublisher_, unStickPublisher_;
-  ros::Publisher observationPublisher_, inputPublisher_;
+      leftUnStickPublisher_, rightUnStickPublisher_, unStickPublisher_, startPublisher_;
+  ros::Publisher observationPublisher_, inputPublisher_, lqrErrorPublisher_, lqrTargetPublisher_;
   // sub
   ::ros::Subscriber leg_cmd_subscriber_;
   rm_msgs::LegCmd leg_cmd_;
