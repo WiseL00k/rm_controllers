@@ -115,6 +115,20 @@ private:
 
   double coeff[40][6];
 
+  double coeff_debug[CONTROL_DIM][STATE_DIM]{};
+
+  Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> getK_debug()
+  {
+    Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> k_coeff_debug_const_leg_;
+    for (int i = 0; i < CONTROL_DIM; i++)
+    {
+      for (int j = 0; j < STATE_DIM; j++)
+      {
+        k_coeff_debug_const_leg_(i, j) = coeff_debug[i][j];
+      }
+    }
+    return k_coeff_debug_const_leg_;
+  }
   Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> getK(double& l_l, double& l_r)
   {
     Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> k;

@@ -102,9 +102,34 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
       {
         coeff[row][col] = static_cast<int>(entry.second[col]);
       }
-      std::cout << entry.first << ' ' << coeff[row][col] << ' ';
+      //      std::cout << entry.first << ' ' << coeff[row][col] << ' ';
     }
-    std::cout << std::endl;
+    //    std::cout << std::endl;
+    row++;
+  }
+
+  XmlRpc::XmlRpcValue xml_coeff_debug;
+  if (!controller_nh.getParam("debug_const_leg", xml_coeff_debug))
+  {  // 注意参数路径
+    ROS_ERROR("Failed to load k_debug_coefficients!");
+    return -1;
+  }
+  row = 0;
+  for (auto& entry : xml_coeff_debug)
+  {
+    if (entry.second.getType() != XmlRpc::XmlRpcValue::TypeArray || entry.second.size() != 10)
+    {
+      ROS_WARN("Invalid data format at %s", entry.first.c_str());
+      continue;
+    }
+
+    for (int col = 0; col < 10; ++col)
+    {
+      if (entry.second[col].getType() == XmlRpc::XmlRpcValue::TypeDouble)
+      {
+        coeff_debug[row][col] = static_cast<double>(entry.second[col]);
+      }
+    }
     row++;
   }
 
@@ -210,7 +235,8 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
 
   leg_cmd_.leg_length = 0.10;
   k_ = getK(leg_cmd_.leg_length, leg_cmd_.leg_length);
-  std::cout << k_ << std::endl;
+  //  k_ = getK_debug();
+  //  std::cout << k_ << std::endl;
   return true;
 }
 
@@ -327,6 +353,7 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   //    x(0) = 0;
 
   k_ = getK(left_pos_[0], right_pos_[0]);
+  //    k_ = getK_debug();
   if (jumpState_ != JumpState::IDLE)
   {
     k_(0, 2) = k_(1, 2) = k_(2, 2) = k_(3, 2) = 0;
@@ -432,8 +459,8 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   //                   left_pos_[0], F_bl[0], u_(2) - T_theta_diff, right_spd_[0], right_pos_[0], F_bl[1],
   //                   u_(3) + T_theta_diff);
 
-  //  left_wheel_joint_handle_.setCommand(left_wheel_torque_ * torque_wheel_k_);
-  //  right_wheel_joint_handle_.setCommand(right_wheel_torque_ * torque_wheel_k_);
+  left_wheel_joint_handle_.setCommand(left_wheel_torque_ * torque_wheel_k_);
+  right_wheel_joint_handle_.setCommand(right_wheel_torque_ * torque_wheel_k_);
   if (start_)
   {
     if (abs(x_[4] + x_[6]) / 2 < 0.2 && abs(x_[5] + x_[7]) / 2 < 0.1 && abs(x_[8]) < 0.2 && abs(x_[9]) < 0.1 &&
@@ -519,11 +546,11 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   odom2imu.setRotation(odom2imu_quaternion);
   odom2base = odom2imu * imu2base;
 
-  quatToRPY(toMsg(odom2imu).rotation, roll_, pitch_, yaw_);
-  yaw_ = -yaw_;
+  //  quatToRPY(toMsg(odom2imu).rotation, roll_, pitch_, yaw_);
+  //  yaw_ = -yaw_;
 
-  double temp_yaw_;
-  quatToRPY(toMsg(odom2base).rotation, roll_, pitch_, temp_yaw_);
+  //  double temp_yaw_;
+  quatToRPY(toMsg(odom2base).rotation, roll_, pitch_, yaw_);
   // vmc
   left_angle[0] =
       vmc_bias_angle_ + left_back_leg_joint_handle_.getPosition();  // [0]:back_vmc_joint [1]:front_vmc_joint
@@ -574,6 +601,7 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   x_[1] = state_ != RAW ? x_hat(0) : 0;
   x_[2] = yaw_total_;
   x_[3] = angular_vel_base_.z;
+  //  x_[2] = x_[3] = 0;
   x_[4] = left_pos_[1] + pitch_;
   x_[5] = left_spd_[1] + angular_vel_base_.y;
   x_[6] = right_pos_[1] + pitch_;
