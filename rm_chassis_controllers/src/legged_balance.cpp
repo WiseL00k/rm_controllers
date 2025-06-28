@@ -565,9 +565,9 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
           right_angle[1], right_spd_);
 
   // Slippage_detection
-  double leftWheelVel = (left_wheel_joint_handle_.getVelocity() - angular_vel_base_.z + left_spd_[0]) * wheel_radius_;
+  double leftWheelVel = (left_wheel_joint_handle_.getVelocity() - angular_vel_base_.y + left_spd_[1]) * wheel_radius_;
   double rightWheelVel =
-      (right_wheel_joint_handle_.getVelocity() + angular_vel_base_.z + right_spd_[0]) * wheel_radius_;
+      (right_wheel_joint_handle_.getVelocity() + angular_vel_base_.y + right_spd_[1]) * wheel_radius_;
   double leftWheelVelAbsolute = leftWheelVel + left_pos_[0] * left_spd_[1] * cos(left_pos_[1] + pitch_) +
                                 left_spd_[0] * sin(left_pos_[1] + pitch_);
   double rightWheelVelAbsolute = rightWheelVel + right_pos_[0] * right_spd_[1] * cos(right_pos_[1] + pitch_) +
