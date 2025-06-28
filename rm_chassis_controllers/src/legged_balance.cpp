@@ -211,8 +211,12 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
   B_.setZero();
   X_.setZero();
   U_.setZero();
+  angularz_X_.setZero();
+  angularz_U_.setZero();
   kalmanFilterPtr_ = std::make_shared<KalmanFilter<double>>(A_, B_, H_, Q_, R_);
   kalmanFilterPtr_->clear(X_);
+  angularz_kalmanFilterPtr_ = std::make_shared<KalmanFilter<double>>(A_, B_, H_, Q_, R_);
+  angularz_kalmanFilterPtr_->clear(X_);
 
   left_averFNPtr_ = std::make_shared<MovingAverageFilter<double>>(5);
   right_averFNPtr_ = std::make_shared<MovingAverageFilter<double>>(5);
@@ -471,10 +475,10 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   }
   else
   {
-    //    left_front_leg_joint_handle_.setCommand(left_T[1]);
-    //    right_front_leg_joint_handle_.setCommand(right_T[1]);
-    //    left_back_leg_joint_handle_.setCommand(left_T[0]);
-    //    right_back_leg_joint_handle_.setCommand(right_T[0]);
+    left_front_leg_joint_handle_.setCommand(left_T[1]);
+    right_front_leg_joint_handle_.setCommand(right_T[1]);
+    left_back_leg_joint_handle_.setCommand(left_T[0]);
+    right_back_leg_joint_handle_.setCommand(right_T[0]);
   }
 
   std_msgs::Float64MultiArray input_;
@@ -574,20 +578,27 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
                                  right_spd_[0] * sin(right_pos_[1] + pitch_);
 
   double wheel_vel_aver = (leftWheelVelAbsolute + rightWheelVelAbsolute) / 2.;
+  double angular_vel_z_wheel = (rightWheelVelAbsolute - leftWheelVelAbsolute) / wheel_track_;
   if (i >= sample_times_)
   {  // oversampling
     i = 0;
     X_(0) = wheel_vel_aver;
     X_(1) = imu_handle_.getLinearAccelerationCovariance()[0];
+    angularz_X_(0) = angular_vel_z_wheel;
+    angularz_X_(1) = angular_vel_base_.z;
     kalmanFilterPtr_->predict(U_);
     kalmanFilterPtr_->update(X_);
+    angularz_kalmanFilterPtr_->predict(angularz_U_);
+    angularz_kalmanFilterPtr_->update(angularz_X_);
   }
   else
   {
     kalmanFilterPtr_->predict(U_);
+    angularz_kalmanFilterPtr_->predict(angularz_U_);
     i++;
   }
   auto x_hat = kalmanFilterPtr_->getState();
+  auto angular_vel_z_hat = angularz_kalmanFilterPtr_->getState()(0);
 
   double yaw_last = yaw_total_;
   yaw_total_ = yaw_last + angles::shortest_angular_distance(yaw_last, yaw_);
@@ -600,7 +611,8 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   x_[0] += state_ != RAW ? x_hat(0) * period.toSec() : 0;
   x_[1] = state_ != RAW ? x_hat(0) : 0;
   x_[2] = yaw_total_;
-  x_[3] = angular_vel_base_.z;
+  //  x_[3] = angular_vel_base_.z;
+  x_[3] = angular_vel_z_hat;
   //  x_[2] = x_[3] = 0;
   x_[4] = left_pos_[1] + pitch_;
   x_[5] = left_spd_[1] + angular_vel_base_.y;
@@ -623,6 +635,8 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
 
   state_.data.push_back(yaw_);
   state_.data.push_back(vel_cmd_.z);
+  state_.data.push_back(angular_vel_z_wheel);
+  state_.data.push_back(angular_vel_z_hat);
 
   observationPublisher_.publish(state_);
 

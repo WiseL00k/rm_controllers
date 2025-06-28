@@ -90,9 +90,9 @@ private:
 
   // Slippage_detection
   Eigen::Matrix<double, 2, 2> A_, B_, H_, Q_, R_;
-  Eigen::Matrix<double, 2, 1> X_, U_;
+  Eigen::Matrix<double, 2, 1> X_, U_, angularz_X_, angularz_U_;
   int i = 0, sample_times_ = 3;
-  std::shared_ptr<KalmanFilter<double>> kalmanFilterPtr_;
+  std::shared_ptr<KalmanFilter<double>> kalmanFilterPtr_, angularz_kalmanFilterPtr_;
   std::shared_ptr<MovingAverageFilter<double>> left_averFNPtr_, right_averFNPtr_;
   std::shared_ptr<RampFilter<double>> vel_FilterPtr_;
   // Jump
