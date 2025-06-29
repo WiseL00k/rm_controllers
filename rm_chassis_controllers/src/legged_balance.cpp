@@ -206,8 +206,8 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
   // Slippage detection
   A_ << 1, 0, 0, 1;
   H_ << 1, 0, 0, 1;
-  Q_ << 0.5, 0, 0, 0.5;
-  R_ << 100, 0, 0, 100;
+  Q_ << 1, 0, 0, 1;
+  R_ << 200, 0, 0, 200;
   B_.setZero();
   X_.setZero();
   U_.setZero();
@@ -215,6 +215,8 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
   angularz_U_.setZero();
   kalmanFilterPtr_ = std::make_shared<KalmanFilter<double>>(A_, B_, H_, Q_, R_);
   kalmanFilterPtr_->clear(X_);
+  Q_.setZero();
+  Q_ << 0.5, 0, 0, 0.5;
   angularz_kalmanFilterPtr_ = std::make_shared<KalmanFilter<double>>(A_, B_, H_, Q_, R_);
   angularz_kalmanFilterPtr_->clear(X_);
 
@@ -336,6 +338,8 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   x(2) -= yaw_des_;
   x(3) -= vel_cmd_.z;
 
+  k_ = getK(left_pos_[0], right_pos_[0]);
+
   if (state_ != RAW)
   {
     if (!left_unstick_ && !right_unstick_ && jumpState_ == JumpState::IDLE)
@@ -350,19 +354,15 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   else
   {
     x(0) = x(1) = 0;
+    k_(2, 2) = k_(3, 2) = 0;
+    k_(2, 3) = k_(3, 3) = 0;
   }
   //  if (vel_cmd_.x == 0)
   //    x(0) -= position_des_;
   //  else
   //    x(0) = 0;
 
-  k_ = getK(left_pos_[0], right_pos_[0]);
   //    k_ = getK_debug();
-  if (jumpState_ != JumpState::IDLE)
-  {
-    k_(0, 2) = k_(1, 2) = k_(2, 2) = k_(3, 2) = 0;
-    k_(0, 3) = k_(1, 3) = k_(2, 3) = k_(3, 3) = 0;
-  }
 
   u_ = k_ * (-x);
 
@@ -603,11 +603,11 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   double yaw_last = yaw_total_;
   yaw_total_ = yaw_last + angles::shortest_angular_distance(yaw_last, yaw_);
   // update state
-  //  x_[0] = (wheel_radius_ * (left_wheel_joint_handle_.getPosition() + right_wheel_joint_handle_.getPosition()) / 2.0);
-  if (state_ == RAW)
-  {
-    x_[0] = position_des_ = 0;
-  }
+  //  x_[0] = (wheel_radius_ * (left_wheel_joint_handle_.getPosition() + right_wheel_joint_handle_.getPosition())
+  //  / 2.0); if (state_ == RAW)
+  //  {
+  //    x_[0] = position_des_ = 0;
+  //  }
   x_[0] += state_ != RAW ? x_hat(0) * period.toSec() : 0;
   x_[1] = state_ != RAW ? x_hat(0) : 0;
   x_[2] = yaw_total_;
