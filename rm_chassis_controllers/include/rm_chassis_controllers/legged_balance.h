@@ -75,7 +75,7 @@ private:
   double torque_wheel_k_ = 0.3;
   bool balance_state_changed_ = false, maybe_block_ = false;
   bool left_unstick_ = false, right_unstick_ = false;
-  bool start_ = false;
+  bool start_ = false, move_flag_ = false;
   bool maybeOverturn_ = false, overturnStateChanged_ = false;
 
   hardware_interface::ImuSensorHandle imu_handle_;

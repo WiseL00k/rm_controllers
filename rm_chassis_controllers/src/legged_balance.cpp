@@ -223,7 +223,7 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
   left_averFNPtr_ = std::make_shared<MovingAverageFilter<double>>(5);
   right_averFNPtr_ = std::make_shared<MovingAverageFilter<double>>(5);
 
-  vel_FilterPtr_ = std::make_shared<RampFilter<double>>(1, 0.2);
+  //  vel_FilterPtr_ = std::make_shared<RampFilter<double>>(0, 0.001);
 
   // sub
   leg_cmd_subscriber_ =
@@ -240,8 +240,8 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
   balance_mode_ = BalanceMode::NORMAL;
 
   leg_cmd_.leg_length = 0.10;
-  k_ = getK(leg_cmd_.leg_length, leg_cmd_.leg_length);
-  //  k_ = getK_debug();
+  //  k_ = getK(leg_cmd_.leg_length, leg_cmd_.leg_length);
+  k_ = getK_debug();
   //  std::cout << k_ << std::endl;
   return true;
 }
@@ -338,7 +338,8 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   x(2) -= yaw_des_;
   x(3) -= vel_cmd_.z;
 
-  k_ = getK(left_pos_[0], right_pos_[0]);
+  //  k_ = getK(left_pos_[0], right_pos_[0]);
+  k_ = getK_debug();
 
   if (state_ != RAW)
   {
@@ -346,23 +347,31 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
     {
       position_des_ += vel_cmd_.x * period.toSec();
     }
-    vel_FilterPtr_->input(vel_cmd_.x);
-    x(1) -= vel_FilterPtr_->output();
+    //    vel_FilterPtr_->input(vel_cmd_.x);
+    x(1) -= vel_cmd_.x;
     x(0) -= position_des_;
     //    x(1) -= vel_cmd_.x;
   }
   else
   {
-    x(0) = x(1) = 0;
-    k_(2, 2) = k_(3, 2) = 0;
-    k_(2, 3) = k_(3, 3) = 0;
+    //    x(0) = x(1) = 0;
+    //    k_(2, 2) = k_(3, 2) = 0;
+    //    k_(2, 3) = k_(3, 3) = 0;
+  }
+  if (vel_cmd_.x != 0)
+  {
+    move_flag_ = true;
+  }
+  if (vel_cmd_.x == 0 && move_flag_ && abs(x(1)) < 0.01)
+  {
+    position_des_ = x_[0] + leg_aver * sin((x_[2] + x_[4]) / 2);
+    move_flag_ = false;
   }
   //  if (vel_cmd_.x == 0)
   //    x(0) -= position_des_;
   //  else
   //    x(0) = 0;
 
-  //    k_ = getK_debug();
 
   u_ = k_ * (-x);
 
@@ -610,9 +619,10 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   //  }
   x_[0] += state_ != RAW ? x_hat(0) * period.toSec() : 0;
   x_[1] = state_ != RAW ? x_hat(0) : 0;
+  //  x_[1] = state_ != RAW ? wheel_vel_aver : 0;
   x_[2] = yaw_total_;
-  //  x_[3] = angular_vel_base_.z;
-  x_[3] = angular_vel_z_hat;
+  x_[3] = angular_vel_base_.z;
+  //  x_[3] = angular_vel_z_hat;
   //  x_[2] = x_[3] = 0;
   x_[4] = left_pos_[1] + pitch_;
   x_[5] = left_spd_[1] + angular_vel_base_.y;
@@ -831,8 +841,8 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
     {
       position_des_ += vel_cmd_.x * period.toSec();
     }
-    vel_FilterPtr_->input(vel_cmd_.x);
-    x(1) -= vel_FilterPtr_->output();
+    //    vel_FilterPtr_->input(vel_cmd_.x);
+    x(1) -= vel_cmd_.x;
     x(0) -= position_des_;
     //    x(1) -= vel_cmd_.x;
   }
