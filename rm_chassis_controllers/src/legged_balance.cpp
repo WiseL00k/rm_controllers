@@ -240,8 +240,8 @@ bool LeggedBalanceController::init(hardware_interface::RobotHW* robot_hw, ros::N
   balance_mode_ = BalanceMode::NORMAL;
 
   leg_cmd_.leg_length = 0.10;
-  //  k_ = getK(leg_cmd_.leg_length, leg_cmd_.leg_length);
-  k_ = getK_debug();
+  k_ = getK(leg_cmd_.leg_length, leg_cmd_.leg_length);
+  //  k_ = getK_debug();
   //  std::cout << k_ << std::endl;
   return true;
 }
@@ -336,25 +336,23 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
 
   yaw_des_ += vel_cmd_.z * period.toSec();
   x(2) -= yaw_des_;
-  x(3) -= vel_cmd_.z;
+  //  x(3) -= vel_cmd_.z;
 
-  //  k_ = getK(left_pos_[0], right_pos_[0]);
-  k_ = getK_debug();
+  k_ = getK(left_pos_[0], right_pos_[0]);
+  //  k_ = getK_debug();
 
+  x(0) -= position_des_;
+  x(1) -= vel_cmd_.x;
   if (state_ != RAW)
   {
     if (!left_unstick_ && !right_unstick_ && jumpState_ == JumpState::IDLE)
     {
       position_des_ += vel_cmd_.x * period.toSec();
     }
-    //    vel_FilterPtr_->input(vel_cmd_.x);
-    x(1) -= vel_cmd_.x;
-    x(0) -= position_des_;
-    //    x(1) -= vel_cmd_.x;
   }
   else
   {
-    //    x(0) = x(1) = 0;
+    x(0) = x(1) = 0;
     //    k_(2, 2) = k_(3, 2) = 0;
     //    k_(2, 3) = k_(3, 3) = 0;
   }
@@ -615,11 +613,22 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   //  x_[0] = (wheel_radius_ * (left_wheel_joint_handle_.getPosition() + right_wheel_joint_handle_.getPosition())
   //  / 2.0); if (state_ == RAW)
   //  {
+  //    x_[0] = position_des_ = 0;++++
+  //  }
+
+  //  if (state_ != RAW && abs(x_hat(0)) < 0.3 && vel_cmd_.x == 0)
+  //  {
+  //    x_[0] += x_hat(0) * period.toSec();
+  //  }
+  //  else
+  //  {
   //    x_[0] = position_des_ = 0;
   //  }
+
   x_[0] += state_ != RAW ? x_hat(0) * period.toSec() : 0;
   x_[1] = state_ != RAW ? x_hat(0) : 0;
   //  x_[1] = state_ != RAW ? wheel_vel_aver : 0;
+
   x_[2] = yaw_total_;
   x_[3] = angular_vel_base_.z;
   //  x_[3] = angular_vel_z_hat;
