@@ -13,6 +13,8 @@
 #include "rm_chassis_controllers/chassis_base.h"
 #include "rm_common/filters/kalman_filter.h"
 #include "rm_msgs/LegCmd.h"
+#include "rm_common/LQRController.h"
+#include "rm_chassis_controllers/vmc/VMC.h"
 
 namespace rm_chassis_controllers
 {
@@ -22,7 +24,7 @@ class LeggedBalanceController
                        hardware_interface::EffortJointInterface>
 {
   // clang-format off
-  enum BalanceMode {NORMAL, BLOCK, SITDOWN, SHUTDOWN};
+  enum BalanceMode {NORMAL, BLOCK, RECOVERY, SITDOWN, SHUTDOWN};
   enum JumpState {IDLE, LEG_RETRACTION, JUMP_UP, OFF_GROUND};
   // clang-format on
 
@@ -40,9 +42,12 @@ private:
   void normal(const ros::Time& time, const ros::Duration& period);
   void block(const ros::Time& time, const ros::Duration& period);
   void sitDown(const ros::Time& time, const ros::Duration& period);
+  void recovery(const ros::Time& time, const ros::Duration& period);
   void shutDown(const ros::Time& time, const ros::Duration& period);
 
   void updateEstimation(const ros::Time& time, const ros::Duration& period);
+  //  void unstickDetection();
+
   void unstickDetection(const ros::Time& time, const ros::Duration& period, const double& left_theta,
                         const double& left_dtheta, const double& right_theta, const double& right_dtheta,
                         const double& ddzm, const double& left_dL0, const double& left_L0, const double& left_F,
@@ -57,10 +62,10 @@ private:
   Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> b_{};
   Eigen::Matrix<double, CONTROL_DIM, CONTROL_DIM> r_{};
   Eigen::Matrix<double, STATE_DIM, 1> x_{}, x;
-  double vmc_bias_angle_, left_angle[2], right_angle[2], left_pos_[2], left_spd_[2], right_pos_[2], right_spd_[2];
+  double vmc_bias_angle_, left_angle[2], right_angle[2], left_dangle[2], right_dangle[2];
   double leg_aver = 0.10;
   double wheel_radius_ = 0.06, wheel_track_ = 0.49;
-  double body_mass_ = 16.7, g_ = 9.81;
+  double body_mass_ = 16.7, leg_mass_ = 0.618, g_ = 9.81;
   double position_des_ = 0;
   double position_offset_ = 0.;
   double position_clear_threshold_ = 0.;
@@ -83,7 +88,7 @@ private:
       left_back_leg_joint_handle_, right_front_leg_joint_handle_, right_back_leg_joint_handle_;
 
   geometry_msgs::Vector3 angular_vel_base_;
-  double roll_{}, pitch_{}, yaw_{}, yaw_total_{};
+  double roll_{}, pitch_{}, yaw_{}, yaw_total_{}, yaw_last{};
 
   control_toolbox::Pid pid_left_leg_, pid_right_leg_, pid_theta_diff_, pid_length_diff_, pid_roll_, pid_center_gravity_,
       pid_yaw_pos_, pid_yaw_spd_;
@@ -116,6 +121,11 @@ private:
   double coeff[40][6];
 
   double coeff_debug[CONTROL_DIM][STATE_DIM]{};
+
+  std::shared_ptr<LQRController<double>> lqrControllerPtr_;
+  Eigen::Matrix<double, STATE_DIM, 1> target_, error_;
+
+  std::shared_ptr<VMC> vmcPtr_;
 
   Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> getK_debug()
   {
