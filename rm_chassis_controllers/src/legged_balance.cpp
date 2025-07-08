@@ -258,6 +258,10 @@ void LeggedBalanceController::moveJoint(const ros::Time& time, const ros::Durati
   {
     balance_mode_ = BalanceMode::SITDOWN;
   }
+  else
+  {
+    balance_mode_ = BalanceMode::NORMAL;
+  }
 
   // Check jump
   if (jumpState_ == IDLE && ros::Time::now() - lastJumpTime_ > ros::Duration(jumpOverTime_) && leg_cmd_.jump == true)
@@ -269,7 +273,7 @@ void LeggedBalanceController::moveJoint(const ros::Time& time, const ros::Durati
   double overturnDuration = 0.2;
   if (balance_mode_ != BalanceMode::RECOVERY && !left_unstick_ && !right_unstick_ && jumpState_ == JumpState::IDLE)
   {
-    if (abs(x_(4) + x_(6)) / 2 > legProtectAngle_)
+    if (abs(x_(4) + x_(6)) / 2 > legProtectAngle_ && abs(vmcPtr_->pitch_) < 0.4)
     {
       if (!maybeOverturn_)
       {
@@ -346,14 +350,10 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   // set target state
 
   yaw_des_ += vel_cmd_.z * period.toSec();
-  x(2) -= yaw_des_;
-  //  x(3) -= vel_cmd_.z;
 
-  k_ = getK(vmcPtr_->left_pos_[0], vmcPtr_->right_pos_[0]);
-  //  k_ = getK_debug();
+  //  k_ = getK(vmcPtr_->left_pos_[0], vmcPtr_->right_pos_[0]);
+  k_ = getK_debug();
 
-  x(0) -= position_des_;
-  x(1) -= vel_cmd_.x;
   if (state_ != RAW)
   {
     if (!left_unstick_ && !right_unstick_ && jumpState_ == JumpState::IDLE)
@@ -368,30 +368,35 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
     //    k_(2, 3) = k_(3, 3) = 0;
   }
 
-  //  if (vel_cmd_.x != 0)
-  //  {
-  //    move_flag_ = true;
-  //  }
-  //  if (vel_cmd_.x < 0.01 && move_flag_ && abs(x(1)) < 0.01)
-  //  {
-  //    position_des_ =
-  //        x_[0] + (vmcPtr_->left_pos_[0] * vmcPtr_->theta_[0] + vmcPtr_->right_pos_[0] * vmcPtr_->theta_[1]) / 2;
-  //    move_flag_ = false;
-  //  }
+  if (vel_cmd_.x != 0)
+  {
+    move_flag_ = true;
+  }
+  if (vel_cmd_.x < 0.1 && move_flag_ && abs(x(1)) < 0.1)
+  {
+    position_des_ =
+        x_[0] +
+        (vmcPtr_->left_pos_[0] * sin(vmcPtr_->theta_[0]) + vmcPtr_->right_pos_[0] * sin(vmcPtr_->theta_[1])) / 2;
+    move_flag_ = false;
+  }
 
-  //  if (vel_cmd_.x < 0.01)
-  //    x(0) -= position_des_;
-  //  else
-  //    x(0) = 0;
+  if (abs(vel_cmd_.x) < 0.1 && abs(x(1)) < 0.1)
+  {
+    target_(0) = position_des_;
+  }
+  else
+  {
+    target_(0) = x(0) = x_(0) = position_des_ = 0;
+  }
 
-  target_(0) = position_des_;
+  //  target_(0) = position_des_;
   target_(1) = state_ != RAW ? vel_cmd_.x : 0;
   target_(2) = yaw_des_;
-  //  target_(3) = vel_cmd_.z;
+  target_(3) = vel_cmd_.z;
 
   lqrControllerPtr_->setK(k_);
   lqrControllerPtr_->setTarget(target_);
-  lqrControllerPtr_->input(x_);
+  lqrControllerPtr_->input(x);
   u_ = lqrControllerPtr_->output();
   //  u_ = k_ * (-x);
 
@@ -492,11 +497,11 @@ void LeggedBalanceController::normal(const ros::Time& time, const ros::Duration&
   vmcPtr_->updateTor();
 
   vmcPtr_->CalcLegFN(period);
-  unstickDetection(time, period, x_[4], x_[5], x_[6], x_[7], imu_handle_.getLinearAcceleration()[2],
-                   vmcPtr_->left_spd_[0], vmcPtr_->left_pos_[0], F_bl[0], u_(2) - T_theta_diff, vmcPtr_->right_spd_[0],
-                   vmcPtr_->right_pos_[0], F_bl[1], u_(3) + T_theta_diff);
+  //  unstickDetection(time, period, x_[4], x_[5], x_[6], x_[7], imu_handle_.getLinearAcceleration()[2],
+  //                   vmcPtr_->left_spd_[0], vmcPtr_->left_pos_[0], F_bl[0], u_(2) - T_theta_diff,
+  //                   vmcPtr_->right_spd_[0], vmcPtr_->right_pos_[0], F_bl[1], u_(3) + T_theta_diff);
 
-  //  unstickDetection();
+  unstickDetection();
 
   left_wheel_joint_handle_.setCommand(left_wheel_torque_ * torque_wheel_k_);
   right_wheel_joint_handle_.setCommand(right_wheel_torque_ * torque_wheel_k_);
@@ -555,7 +560,8 @@ void LeggedBalanceController::recovery(const ros::Time& time, const ros::Duratio
   x(0) = target_(0) = 0;
   x(1) = target_(1) = 0;
   x(2) = target_(2) = 0;
-
+  x(3) = target_(3) = 0;
+  
   lqrControllerPtr_->setK(k_);
   lqrControllerPtr_->setTarget(target_);
   lqrControllerPtr_->input(x);
@@ -821,62 +827,62 @@ void LeggedBalanceController::updateEstimation(const ros::Time& time, const ros:
   startPublisher_.publish(start_flag_);
 }
 
-void LeggedBalanceController::unstickDetection(const ros::Time& time, const ros::Duration& period,
-                                               const double& left_theta, const double& left_dtheta,
-                                               const double& right_theta, const double& right_dtheta,
-                                               const double& ddzm, const double& left_dL0, const double& left_L0,
-                                               const double& left_F, const double& left_Tp, const double& right_dL0,
-                                               const double& right_L0, const double& right_F, const double& right_Tp)
-// void LeggedBalanceController::unstickDetection()
+// void LeggedBalanceController::unstickDetection(const ros::Time& time, const ros::Duration& period,
+//                                                const double& left_theta, const double& left_dtheta,
+//                                                const double& right_theta, const double& right_dtheta,
+//                                                const double& ddzm, const double& left_dL0, const double& left_L0,
+//                                                const double& left_F, const double& left_Tp, const double& right_dL0,
+//                                                const double& right_L0, const double& right_F, const double& right_Tp)
+void LeggedBalanceController::unstickDetection()
 {
-  static double left_FN, left_P, left_ddzw(0), left_ddL0(0), mw(0.8), lastLeftLegDL0(0), lastLeftLegDDL0(0),
-      lastLeftLegDDTheta(0), left_ddtheta(0), lastLeftLegDTheta(0), lpfRatio(0.7);
-  static double right_FN, right_P, right_ddzw(0), right_ddL0(0), lastRightLegDL0(0), lastRightLegDDL0(0),
-      lastRightLegDDTheta(0), right_ddtheta(0), lastRightLegDTheta(0);
+  //  static double left_FN, left_P, left_ddzw(0), left_ddL0(0), mw(0.8), lastLeftLegDL0(0), lastLeftLegDDL0(0),
+  //      lastLeftLegDDTheta(0), left_ddtheta(0), lastLeftLegDTheta(0), lpfRatio(0.7);
+  //  static double right_FN, right_P, right_ddzw(0), right_ddL0(0), lastRightLegDL0(0), lastRightLegDDL0(0),
+  //      lastRightLegDDTheta(0), right_ddtheta(0), lastRightLegDTheta(0);
   static ros::Time leftJudgeTime, rightJudgeTime;
   static bool leftMaybeChange, rightMaybeChange;
 
-  left_ddL0 = (left_dL0 - lastLeftLegDL0) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastLeftLegDDL0;
-  left_ddtheta = (left_dtheta - lastLeftLegDTheta) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastLeftLegDDTheta;
-  left_P = left_F * cos(left_theta) + (left_Tp * sin(left_theta) / left_L0);
-  left_ddzw = ddzm + g_ - left_ddL0 * cos(left_theta) + 2 * left_dL0 * left_dtheta * sin(left_theta) +
-              left_L0 * left_ddtheta * sin(left_theta) + left_L0 * (left_dtheta * left_dtheta * cos(left_theta));
-  left_FN = mw * left_ddzw + mw * g_ + (left_P);
-  lastLeftLegDDL0 = left_ddL0;
-  lastLeftLegDL0 = left_dL0;
-  lastLeftLegDTheta = left_dtheta;
-  lastLeftLegDDTheta = left_ddtheta;
-
-  right_ddL0 = (right_dL0 - lastRightLegDL0) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastRightLegDDL0;
-  right_ddtheta =
-      (right_dtheta - lastRightLegDTheta) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastRightLegDDTheta;
-  right_P = right_F * cos(right_theta) + (right_Tp * sin(right_theta) / right_L0);
-  right_ddzw = ddzm + g_ - right_ddL0 * cos(right_theta) + 2 * right_dL0 * right_dtheta * sin(right_theta) +
-               right_L0 * right_ddtheta * sin(right_theta) +
-               right_L0 * (right_dtheta * right_dtheta * cos(right_theta));
-  right_FN = mw * right_ddzw + mw * g_ + (right_P);
-  lastRightLegDDL0 = right_ddL0;
-  lastRightLegDL0 = right_dL0;
-  lastRightLegDTheta = right_dtheta;
-  lastRightLegDDTheta = right_ddtheta;
-
-  left_averFNPtr_->input(left_FN);
-  right_averFNPtr_->input(right_FN);
-  left_FN = left_averFNPtr_->output();
-  right_FN = right_averFNPtr_->output();
-
+  //  left_ddL0 = (left_dL0 - lastLeftLegDL0) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastLeftLegDDL0;
+  //  left_ddtheta = (left_dtheta - lastLeftLegDTheta) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastLeftLegDDTheta;
+  //  left_P = left_F * cos(left_theta) + (left_Tp * sin(left_theta) / left_L0);
+  //  left_ddzw = ddzm + g_ - left_ddL0 * cos(left_theta) + 2 * left_dL0 * left_dtheta * sin(left_theta) +
+  //              left_L0 * left_ddtheta * sin(left_theta) + left_L0 * (left_dtheta * left_dtheta * cos(left_theta));
+  //  left_FN = mw * left_ddzw + mw * g_ + (left_P);
+  //  lastLeftLegDDL0 = left_ddL0;
+  //  lastLeftLegDL0 = left_dL0;
+  //  lastLeftLegDTheta = left_dtheta;
+  //  lastLeftLegDDTheta = left_ddtheta;
+  //
+  //  right_ddL0 = (right_dL0 - lastRightLegDL0) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastRightLegDDL0;
+  //  right_ddtheta =
+  //      (right_dtheta - lastRightLegDTheta) / period.toSec() * lpfRatio + (1 - lpfRatio) * lastRightLegDDTheta;
+  //  right_P = right_F * cos(right_theta) + (right_Tp * sin(right_theta) / right_L0);
+  //  right_ddzw = ddzm + g_ - right_ddL0 * cos(right_theta) + 2 * right_dL0 * right_dtheta * sin(right_theta) +
+  //               right_L0 * right_ddtheta * sin(right_theta) +
+  //               right_L0 * (right_dtheta * right_dtheta * cos(right_theta));
+  //  right_FN = mw * right_ddzw + mw * g_ + (right_P);
+  //  lastRightLegDDL0 = right_ddL0;
+  //  lastRightLegDL0 = right_dL0;
+  //  lastRightLegDTheta = right_dtheta;
+  //  lastRightLegDDTheta = right_ddtheta;
+  //
+  //  left_averFNPtr_->input(left_FN);
+  //  right_averFNPtr_->input(right_FN);
+  //  left_FN = left_averFNPtr_->output();
+  //  right_FN = right_averFNPtr_->output();
+  //
   std_msgs::Float64MultiArray support;
-  support.data.push_back(left_ddzw);
-  support.data.push_back(left_P);
-  support.data.push_back(left_F);
-  support.data.push_back(left_Tp);
-  support.data.push_back(ddzm);
-  support.data.push_back(left_theta);
-  support.data.push_back(left_L0);
-  support.data.push_back(left_ddL0);
-
-  support.data.push_back(left_FN);
-  support.data.push_back(right_FN);
+  //  support.data.push_back(left_ddzw);
+  //  support.data.push_back(left_P);
+  //  support.data.push_back(left_F);
+  //  support.data.push_back(left_Tp);
+  //  support.data.push_back(ddzm);
+  //  support.data.push_back(left_theta);
+  //  support.data.push_back(left_L0);
+  //  support.data.push_back(left_ddL0);
+  //
+  //  support.data.push_back(left_FN);
+  //  support.data.push_back(right_FN);
 
   support.data.push_back(vmcPtr_->getLeftFN());
   support.data.push_back(vmcPtr_->getRightFN());
@@ -948,20 +954,6 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
     lastSitDownTime_ = time;
   }
 
-  if (cmd_struct_.cmd_chassis_.mode != 4)
-  {
-    if ((time - lastSitDownTime_).toSec() > 1.0 && abs(x_(4) + x_(6)) / 2 < legProtectAngle_)
-    {
-      balance_mode_ = BalanceMode::NORMAL;
-      start_ = false;
-      x_(0) = 0;
-      position_des_ = x_(0);
-      //      yaw_total_ = 0;
-      yaw_des_ = yaw_total_;
-      ROS_INFO("[balance] Exit SitDown");
-    }
-  }
-
   // PID
   double T_theta_diff = pid_theta_diff_.computeCommand(vmcPtr_->left_pos_[1] - vmcPtr_->right_pos_[1], period);
   double F_length_diff = pid_length_diff_.computeCommand(vmcPtr_->left_pos_[0] - vmcPtr_->right_pos_[0], period);
@@ -972,34 +964,37 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   // set target state
 
   yaw_des_ += vel_cmd_.z * period.toSec();
-  x(2) -= yaw_des_;
-  x(3) -= vel_cmd_.z;
+
+  k_ = getK(vmcPtr_->left_pos_[0], vmcPtr_->right_pos_[0]);
+  //  k_ = getK_debug();
 
   if (state_ != RAW)
   {
-    if (!left_unstick_ && !right_unstick_)
+    if (!left_unstick_ && !right_unstick_ && jumpState_ == JumpState::IDLE)
     {
       position_des_ += vel_cmd_.x * period.toSec();
     }
-    //    vel_FilterPtr_->input(vel_cmd_.x);
-    x(1) -= vel_cmd_.x;
-    x(0) -= position_des_;
-    //    x(1) -= vel_cmd_.x;
+  }
+
+  if (abs(vel_cmd_.x) < 0.01 && abs(x(1)) < 0.1)
+  {
+    target_(0) = position_des_;
   }
   else
   {
-    x(0) = x(1) = 0;
-  }
-  k_ = getK(vmcPtr_->left_pos_[0], vmcPtr_->right_pos_[0]);
-  if (start_)
-  {
-    k_(0, 2) = k_(1, 2) = k_(2, 2) = k_(3, 2) = 0;
-    k_(0, 3) = k_(1, 3) = k_(2, 3) = k_(3, 3) = 0;
+    target_(0) = x(0) = x_(0) = position_des_ = 0;
   }
 
-  u_ = k_ * (-x);
-  pid_yaw_pos_.computeCommand((yaw_des_ - yaw_total_), period);
-  pid_yaw_spd_.computeCommand((pid_yaw_pos_.getCurrentCmd() - angular_vel_base_.z), period);
+  //  target_(0) = position_des_;
+  target_(1) = state_ != RAW ? vel_cmd_.x : 0;
+  target_(2) = yaw_des_;
+  target_(3) = vel_cmd_.z;
+
+  lqrControllerPtr_->setK(k_);
+  lqrControllerPtr_->setTarget(target_);
+  lqrControllerPtr_->input(x);
+  u_ = lqrControllerPtr_->output();
+  //  u_ = k_ * (-x);
 
   // Leg control
   Eigen::Matrix<double, 2, 3> j;
@@ -1007,49 +1002,52 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
   Eigen::Matrix<double, 2, 1> F_leg, F_bl;
   double F_roll, F_gravity, F_inertial;
 
-  // Kp too small? F_leg not enough?
-  F_leg[0] = pid_left_leg_.computeCommand(0.1 - vmcPtr_->left_pos_[0], period) - F_length_diff;
-  F_leg[1] = pid_right_leg_.computeCommand(0.1 - vmcPtr_->right_pos_[0], period) + F_length_diff;
-  F_roll = 0;
-  F_inertial = (0.5 * body_mass_ + 0.782 * leg_mass_) * (leg_aver / wheel_track_) * x_(3) * x_(1);
-  F_gravity = (1. / 2 * body_mass_ + 0.782 * leg_mass_) * g_;
-
-  // 倒地自起检测
-  if (!start_ && (abs(x_[4] + x_[6]) / 2 > 0.4) && (abs(x_[8])) > 0.3 &&
-      (ros::Time::now() - start_time_) > ros::Duration(0.1))
+  if (jumpState_ == JumpState::IDLE)
   {
-    if (leg_aver < 0.13)
-    {
-      start_ = true;
-      start_time_ = ros::Time::now();
-    }
-    else
-    {
-      left_wheel_torque_ = right_wheel_torque_ = 0;
-      F_gravity = 0;
-      F_inertial = 0;
-    }
+    F_leg[0] = pid_left_leg_.computeCommand(leg_cmd_.leg_length - vmcPtr_->left_pos_[0], period) - F_length_diff;
+    F_leg[1] = pid_right_leg_.computeCommand(leg_cmd_.leg_length - vmcPtr_->right_pos_[0], period) + F_length_diff;
+    F_roll = pid_roll_.computeCommand(0 - roll_, period);
+    //    F_inertial = (0.5 * body_mass_ + 0.782 * leg_mass_) * (leg_aver / wheel_track_) * x_(3) * x_(1);
+    F_inertial = 0;
+    F_gravity = (1. / 2 * body_mass_ + 0.782 * leg_mass_) * g_;
+  }
+
+  left_wheel_torque_ = u_(0);
+  right_wheel_torque_ = u_(1);
+
+  if ((!start_ && left_unstick_ && right_unstick_ && jumpState_ == JumpState::IDLE) ||
+      jumpState_ == JumpState::OFF_GROUND)
+  {
+    left_wheel_torque_ = 0;
+    right_wheel_torque_ = 0;
+    u_(2) = k_(2, 4) * (-x_(4)) + k_(2, 6) * (-x_(6));
+    u_(3) = k_(3, 4) * (-x_(4)) + k_(3, 6) * (-x_(6));
+    F_gravity = 0;
+    F_inertial = 0;
   }
 
   // clang-format off
-    j << 1, 1./cos(vmcPtr_->left_pos_[1]), -1,
-        -1, 1./cos(vmcPtr_->right_pos_[1]), 1;
+  j << 1, 1./cos(vmcPtr_->left_pos_[1]), -1,
+      -1, 1./cos(vmcPtr_->right_pos_[1]), 1;
   // clang-format on
   p << F_roll, F_gravity, F_inertial;
   F_bl = j * p + F_leg;
 
-  left_wheel_torque_ = u_(0) - pid_yaw_spd_.getCurrentCmd();
-  right_wheel_torque_ = u_(1) + pid_yaw_spd_.getCurrentCmd();
+  Eigen::Matrix<double, 2, 1> T;
+  T(0) = u_(2) - T_theta_diff;
+  T(1) = u_(3) + T_theta_diff;
+  vmcPtr_->setTor(F_bl, T);
+  vmcPtr_->updateTor();
 
-  double left_T[2], right_T[2];
-  leg_conv(F_bl[0], -T_theta_diff, left_angle[0], left_angle[1], left_T);
-  leg_conv(F_bl[1], +T_theta_diff, right_angle[0], right_angle[1], right_T);
+  vmcPtr_->CalcLegFN(period);
+  //  unstickDetection(time, period, x_[4], x_[5], x_[6], x_[7], imu_handle_.getLinearAcceleration()[2],
+  //                   vmcPtr_->left_spd_[0], vmcPtr_->left_pos_[0], F_bl[0], u_(2) - T_theta_diff,
+  //                   vmcPtr_->right_spd_[0], vmcPtr_->right_pos_[0], F_bl[1], u_(3) + T_theta_diff);
 
   //  unstickDetection();
 
   left_wheel_joint_handle_.setCommand(left_wheel_torque_ * torque_wheel_k_);
   right_wheel_joint_handle_.setCommand(right_wheel_torque_ * torque_wheel_k_);
-
   if (start_)
   {
     if (abs(x_[4] + x_[6]) / 2 < 0.2 && abs(x_[5] + x_[7]) / 2 < 0.1 && abs(x_[8]) < 0.2 && abs(x_[9]) < 0.1 &&
@@ -1057,24 +1055,22 @@ void LeggedBalanceController::sitDown(const ros::Time& time, const ros::Duration
     {
       start_ = false;
     }
-    else
-    {
-      left_T[0] = 0;
-      left_T[1] = 0;
-      right_T[0] = 0;
-      right_T[1] = 0;
-    }
   }
-  left_front_leg_joint_handle_.setCommand(left_T[1]);
-  right_front_leg_joint_handle_.setCommand(right_T[1]);
-  left_back_leg_joint_handle_.setCommand(left_T[0]);
-  right_back_leg_joint_handle_.setCommand(right_T[0]);
+  else {}
+  left_front_leg_joint_handle_.setCommand(vmcPtr_->left_T_[1]);
+  right_front_leg_joint_handle_.setCommand(vmcPtr_->right_T_[1]);
+  left_back_leg_joint_handle_.setCommand(vmcPtr_->left_T_[0]);
+  right_back_leg_joint_handle_.setCommand(vmcPtr_->right_T_[0]);
 
   std_msgs::Float64MultiArray input_;
   input_.data.push_back(u_(0));
   input_.data.push_back(u_(1));
   input_.data.push_back(u_(2));
   input_.data.push_back(u_(3));
+
+  input_.data.push_back(vmcPtr_->F_N_[0]);
+  input_.data.push_back(vmcPtr_->F_N_[1]);
+
   inputPublisher_.publish(input_);
 }
 
