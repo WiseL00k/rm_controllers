@@ -141,11 +141,11 @@ void ChassisBase<T...>::update(const ros::Time& time, const ros::Duration& perio
   }
 
   if (cmd_rt_buffer_.readFromRT()->cmd_chassis_.follow_source_frame.empty())
-    follow_source_frame_ = "base_link";
+    follow_source_frame_ = "yaw";
   else
     follow_source_frame_ = cmd_rt_buffer_.readFromRT()->cmd_chassis_.follow_source_frame;
   if (cmd_rt_buffer_.readFromRT()->cmd_chassis_.command_source_frame.empty())
-    command_source_frame_ = "base_link";
+    command_source_frame_ = "yaw";
   else
     command_source_frame_ = cmd_rt_buffer_.readFromRT()->cmd_chassis_.command_source_frame;
 

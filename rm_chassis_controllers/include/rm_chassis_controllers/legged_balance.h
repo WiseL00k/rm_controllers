@@ -48,8 +48,13 @@ private:
   void updateEstimation(const ros::Time& time, const ros::Duration& period);
   //  void unstickDetection();
 
-  void unstickDetection();
+  void unstickDetection(const ros::Time& time, const ros::Duration& period, const double& left_theta,
+                        const double& left_dtheta, const double& right_theta, const double& right_dtheta,
+                        const double& ddzm, const double& left_dL0, const double& left_L0, const double& left_F,
+                        const double& left_Tp, const double& right_dL0, const double& right_L0, const double& right_F,
+                        const double& right_Tp);
   geometry_msgs::Twist odometry() override;
+  void follow(const ros::Time& time, const ros::Duration& period) override;
   static const int STATE_DIM = 10;
   static const int CONTROL_DIM = 4;
 
@@ -61,13 +66,13 @@ private:
   double vmc_bias_angle_, left_angle[2], right_angle[2], left_dangle[2], right_dangle[2];
   double leg_aver = 0.10;
   double wheel_radius_ = 0.06, wheel_track_ = 0.49;
-  double body_mass_ = 12.7, leg_mass_ = 0.618, g_ = 9.81;
+  double body_mass_ = 18.7, leg_mass_ = 0.618, g_ = 9.81;
   double position_des_ = 0;
   double position_offset_ = 0.;
   double position_clear_threshold_ = 0.;
   double yaw_des_ = 0;
 
-  int balance_mode_;
+  int balance_mode_ = BalanceMode::NORMAL;
   ros::Time block_time_, last_block_time_, start_time_;
   ros::Time maybeOverturnTime_, lastSitDownTime_;
   double block_angle_, block_duration_, block_velocity_, block_effort_, anti_block_effort_, block_overtime_;
@@ -104,7 +109,7 @@ private:
 
   // pub
   ros::Publisher legLengthPublisher_, legPendulumSupportForcePublisher_, legGroundSupportForcePublisher_,
-      leftUnStickPublisher_, rightUnStickPublisher_, unStickPublisher_, startPublisher_;
+      leftUnStickPublisher_, rightUnStickPublisher_, unStickPublisher_, startPublisher_, recoveryPublisher_;
   ros::Publisher observationPublisher_, inputPublisher_, lqrErrorPublisher_, lqrTargetPublisher_;
   // sub
   ::ros::Subscriber leg_cmd_subscriber_;
