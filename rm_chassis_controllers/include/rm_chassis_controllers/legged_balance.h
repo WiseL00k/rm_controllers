@@ -66,7 +66,7 @@ private:
   double vmc_bias_angle_, left_angle[2], right_angle[2], left_dangle[2], right_dangle[2];
   double leg_aver = 0.10;
   double wheel_radius_ = 0.06, wheel_track_ = 0.49;
-  double body_mass_ = 18.7, leg_mass_ = 0.618, g_ = 9.81;
+  double body_mass_ = 18.2, leg_mass_ = 0.618, g_ = 9.81;
   double position_des_ = 0;
   double position_offset_ = 0.;
   double position_clear_threshold_ = 0.;
@@ -78,7 +78,8 @@ private:
   double block_angle_, block_duration_, block_velocity_, block_effort_, anti_block_effort_, block_overtime_;
   double pitchProtectAngle_, rollProtectAngle_, legProtectLength_, legProtectAngle_;
   double left_wheel_torque_, right_wheel_torque_;
-  double torque_wheel_k_ = 0.3;
+  double leftWheelVelAbsolute, rightWheelVelAbsolute;
+  double torque_wheel_k_ = 1;
   bool balance_state_changed_ = false, maybe_block_ = false;
   bool left_unstick_ = false, right_unstick_ = false;
   bool start_ = false, move_flag_ = false;
@@ -91,8 +92,8 @@ private:
   geometry_msgs::Vector3 angular_vel_base_;
   double roll_{}, pitch_{}, yaw_{}, yaw_total_{}, yaw_last{};
 
-  control_toolbox::Pid pid_left_leg_, pid_right_leg_, pid_theta_diff_, pid_length_diff_, pid_roll_, pid_center_gravity_,
-      pid_yaw_pos_, pid_yaw_spd_;
+  control_toolbox::Pid pid_left_leg_, pid_right_leg_, pid_left_leg_spd_, pid_right_leg_spd_, pid_theta_diff_,
+      pid_length_diff_, pid_roll_, pid_center_gravity_, pid_yaw_pos_, pid_yaw_spd_;
 
   // Slippage_detection
   Eigen::Matrix<double, 2, 2> A_, B_, H_, Q_, R_;
@@ -119,7 +120,7 @@ private:
 
   void legCmdCallback(const rm_msgs::LegCmdConstPtr& msg);
 
-  double coeff[40][6];
+  double coeff[40][6], coeff_A[100][6], coeff_B[40][6];
 
   double coeff_debug[CONTROL_DIM][STATE_DIM]{};
 
@@ -154,6 +155,36 @@ private:
     }
     return k;
   }
-};
+
+  //  Eigen::Matrix<double, STATE_DIM, STATE_DIM> getA(double& l_l, double& l_r)
+  //  {
+  //    Eigen::Matrix<double, STATE_DIM, STATE_DIM> A;
+  //    for (int i = 0; i < STATE_DIM; i++)
+  //    {
+  //      for (int j = 0; j < STATE_DIM; j++)
+  //      {
+  //        A(i, j) = coeff_A[i * 10 + j][0] + coeff_A[i * 10 + j][1] * l_l + coeff_A[i * 10 + j][2] * l_l * l_l +
+  //                  coeff_A[i * 10 + j][3] * l_r + coeff_A[i * 10 + j][4] * l_r * l_r +
+  //                  coeff_A[i * 10 + j][5] * l_l * l_r;
+  //      }
+  //    }
+  //    return A;
+  //  }
+  //  Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> getB(double& l_l, double& l_r)
+  //  {
+  //    Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> B;
+  //    for (int i = 0; i < STATE_DIM; i++)
+  //    {
+  //      for (int j = 0; j < CONTROL_DIM; j++)
+  //      {
+  //        B(i, j) = coeff_B[i * 10 + j][0] + coeff_B[i * 10 + j][1] * l_l + coeff_B[i * 10 + j][2] l_l * l_l +
+  //                  coeff_B[i * 10 + j][3] * l_r + coeff_B[i * 10 + j][4] * l_r * l_r +
+  //                  coeff_B[i * 10 + j][5] * l_l * l_r;
+  //      }
+  //    }
+  //    return B;
+  //  }
+
+};  // namespace rm_chassis_controllers
 
 }  // namespace rm_chassis_controllers
