@@ -17,9 +17,18 @@ public:
 
   void updateVMC()
   {
-    static double last_left_spd[2]{}, last_right_spd[2]{};
+    static double last_left_spd[2]{}, last_right_spd[2]{}, last_left_angle[2]{}, last_right_angle[2]{};
     leg_pos(left_angle_[0], left_angle_[1], left_pos_);
     leg_pos(right_angle_[0], right_angle_[1], right_pos_);
+
+    for (int i = 0; i < 2; ++i)
+    {
+      left_dangle_[i] = lpfRatio * last_left_angle[i] + (1 - lpfRatio) * left_dangle_[i];
+      right_dangle_[i] = lpfRatio * last_right_angle[i] + (1 - lpfRatio) * right_dangle_[i];
+      last_left_angle[i] = left_dangle_[i];
+      last_right_angle[i] = right_dangle_[i];
+    }
+
     leg_spd(left_dangle_[0], left_dangle_[1], left_angle_[0], left_angle_[1], left_spd_);
     leg_spd(right_dangle_[0], right_dangle_[1], right_angle_[0], right_angle_[1], right_spd_);
     for (int i = 0; i < 2; ++i)
