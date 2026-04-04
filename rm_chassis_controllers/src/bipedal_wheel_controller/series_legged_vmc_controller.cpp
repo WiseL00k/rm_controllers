@@ -93,7 +93,7 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   //  angleCmd_ = angleSinCmd_;
   double angle_error = angles::shortest_angular_distance(position[1], angleCmd_);
 
-  effortCmd[0] = pidLength_.computeCommand(lengthCmd_ - position[0], period) - spring_force_;
+  effortCmd[0] = pidLength_.computeCommand(lengthCmd_ - position[0], period) - f_spring_force(position[0]);
   effortCmd[1] = pidAngle_.computeCommand(angle_error, period);
 
   vmcPtr_->leg_conv(effortCmd[0], effortCmd[1], thigh_angle, knee_angle, jointCmd);
@@ -118,6 +118,17 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
 
   jointThigh_.setCommand(jointCmd[0]);
   jointKnee_.setCommand(jointCmd[1]);
+}
+
+double VMCController::f_spring_force(double L0)
+{
+  double l1 = vmcPtr_->getL1(), l2 = vmcPtr_->getL2(), Fs = spring_force_, s2 = 0.0775, s3 = 0.205, alpha_s = 0.2;
+  double cos_theta3, theta3, ls, Fv;
+  cos_theta3 = (l1 * l1 + l2 * l2 - L0 * L0) / (2 * l1 * l2);
+  theta3 = acos(cos_theta3);
+  ls = sqrt(s2 * s2 + s3 * s3 - 2 * s2 * s3 * cos(theta3 - alpha_s));
+  Fv = Fs * (L0 * s2 * s3 * sin(theta3 - alpha_s)) / (ls * l1 * l2 * sin(theta3));
+  return Fv;
 }
 
 }  // namespace rm_chassis_controllers

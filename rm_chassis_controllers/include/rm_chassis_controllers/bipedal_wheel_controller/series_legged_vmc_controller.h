@@ -44,6 +44,8 @@ private:
     angleCmd_ = msg->data;
   }
 
+  double f_spring_force(double L0);
+
   hardware_interface::JointHandle jointThigh_, jointKnee_;
   control_toolbox::Pid pidLength_, pidAngle_;
 
