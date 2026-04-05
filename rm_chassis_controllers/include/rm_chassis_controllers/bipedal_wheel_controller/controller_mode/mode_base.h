@@ -27,6 +27,7 @@ public:
                            double* right_pos, double* right_spd);
   void updateBaseState(const geometry_msgs::Vector3& angular_vel_base, const geometry_msgs::Vector3& linear_acc_base,
                        const double& roll, const double& pitch, const double& yaw);
+  void updateLegFReal(const double* left_F, const double* right_F);
 
   void updateUnstick(const bool& left_unstick, const bool& right_unstick);
   inline double getRealxVel()
@@ -51,6 +52,7 @@ protected:
   geometry_msgs::Vector3 angular_vel_base_{}, linear_acc_base_{};
   double roll_, pitch_, yaw_;
   double yaw_total_{}, yaw_total_last_{};
+  double left_F_real_[2]{}, right_F_real_[2]{};
 };
 
 }  // namespace rm_chassis_controllers

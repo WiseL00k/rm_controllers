@@ -43,4 +43,10 @@ void ModeBase::updateUnstick(const bool& left_unstick, const bool& right_unstick
   right_unstick_ = right_unstick;
 }
 
+void ModeBase::updateLegFReal(const double* left_F, const double* right_F)
+{
+  std::memcpy(left_F_real_, left_F, 2 * sizeof(double));
+  std::memcpy(right_F_real_, right_F, 2 * sizeof(double));
+}
+
 }  // namespace rm_chassis_controllers
