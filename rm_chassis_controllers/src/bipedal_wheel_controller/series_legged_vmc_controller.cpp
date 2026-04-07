@@ -55,10 +55,18 @@ bool VMCController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle&
     ROS_ERROR("Load param fail, check the resist of l1 or l2");
     return false;
   }
+  leg_gravity_compensation_debug_ = controller_nh.param("leg_gravity_compensation_debug", false);
+  leg_mass_ = controller_nh.param("leg_mass", 1.55);
+  LM_weight_ = controller_nh.param("LM_weight", 0.50);
+  s2_ = controller_nh.param("s2", 0.0775);
+  s3_ = controller_nh.param("s3", 0.205);
+  alpha_s_ = controller_nh.param("alpha_s", 0.2);
   vmcPtr_ = std::make_unique<VMC>(l1, l2, 0);
 
   jointThigh_ = robot_hw->get<hardware_interface::EffortJointInterface>()->getHandle(thighJoint);
   jointKnee_ = robot_hw->get<hardware_interface::EffortJointInterface>()->getHandle(kneeJoint);
+
+  debugPub_ = std::make_shared<DebugDataPublisher>(controller_nh, "vmc_debug_data");
   return true;
 }
 
@@ -84,17 +92,41 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   vmcPtr_->leg_spd(jointThigh_.getVelocity(), jointKnee_.getVelocity(), thigh_angle, knee_angle, speed);
 
   double effortCmd[2], jointCmd[2];
-  static double angleSinCmd_ = 0;
-  angleSinCmd_ -= 0.001;
-  if (angleSinCmd_ <= -M_PI)
-  {
-    angleSinCmd_ = M_PI;
-  }
-  //  angleCmd_ = angleSinCmd_;
   double angle_error = angles::shortest_angular_distance(position[1], angleCmd_);
-
-  effortCmd[0] = pidLength_.computeCommand(lengthCmd_ - position[0], period) - f_spring_force(position[0]);
-  effortCmd[1] = pidAngle_.computeCommand(angle_error, period);
+  double f_spring_force_comp = f_spring_force(position[0]);
+  if (leg_gravity_compensation_debug_)
+  {
+    double Tp_leg_comp{}, F_leg_comp{}, beta{};
+    double G_leg = leg_mass_ * g_;
+    double l_leg = position[0] * LM_weight_;
+    if (position[1] > -M_PI_2 && position[1] < M_PI_2)
+    {
+      beta = position[1];
+      F_leg_comp = -G_leg * l_leg * cos(beta);
+    }
+    else
+    {
+      if (position[1] > -M_PI && position[1] < -M_PI_2)
+      {
+        beta = -position[1] - M_PI;
+      }
+      else if (position[1] > M_PI_2 && position[1] < M_PI)
+      {
+        beta = M_PI - position[1];
+      }
+      F_leg_comp = G_leg * l_leg * cos(beta);
+    }
+    Tp_leg_comp = G_leg * l_leg * sin(beta);
+    effortCmd[0] = F_leg_comp;
+    effortCmd[1] = Tp_leg_comp;
+    debugPub_->add("F_leg_comp", F_leg_comp);
+    debugPub_->add("Tp_leg_comp", Tp_leg_comp);
+  }
+  else
+  {
+    effortCmd[0] = pidLength_.computeCommand(lengthCmd_ - position[0], period) - f_spring_force(position[0]);
+    effortCmd[1] = pidAngle_.computeCommand(angle_error, period);
+  }
 
   vmcPtr_->leg_conv(effortCmd[0], effortCmd[1], thigh_angle, knee_angle, jointCmd);
   std_msgs::Float64MultiArray state;
@@ -111,6 +143,9 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   state.data.push_back(jointCmd[1]);
   statePublisher_.publish(state);
 
+  debugPub_->add("f_spring_force", f_spring_force_comp);
+  debugPub_->publish();
+
   std_msgs::Float64MultiArray jointCmdState;
   jointCmdState.data.push_back(jointCmd[0]);
   jointCmdState.data.push_back(jointCmd[1]);
@@ -122,7 +157,7 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
 
 double VMCController::f_spring_force(double L0)
 {
-  double l1 = vmcPtr_->getL1(), l2 = vmcPtr_->getL2(), Fs = spring_force_, s2 = 0.0775, s3 = 0.205, alpha_s = 0.2;
+  double l1 = vmcPtr_->getL1(), l2 = vmcPtr_->getL2(), Fs = spring_force_, s2 = s2_, s3 = s3_, alpha_s = alpha_s_;
   double cos_theta3, theta3, ls, Fv;
   cos_theta3 = (l1 * l1 + l2 * l2 - L0 * L0) / (2 * l1 * l2);
   theta3 = acos(cos_theta3);
