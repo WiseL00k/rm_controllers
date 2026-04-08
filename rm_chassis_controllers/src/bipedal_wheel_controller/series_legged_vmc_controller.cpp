@@ -57,7 +57,6 @@ bool VMCController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle&
   }
   leg_gravity_compensation_debug_ = controller_nh.param("leg_gravity_compensation_debug", false);
   leg_mass_ = controller_nh.param("leg_mass", 1.55);
-  LM_weight_ = controller_nh.param("LM_weight", 0.50);
   s2_ = controller_nh.param("s2", 0.0775);
   s3_ = controller_nh.param("s3", 0.205);
   alpha_s_ = controller_nh.param("alpha_s", 0.2);
@@ -98,21 +97,22 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   {
     double Tp_leg_comp{}, F_leg_comp{}, beta{};
     double G_leg = leg_mass_ * g_;
-    double l_leg = position[0] * LM_weight_;
+    double l_leg = get_LM(position[0]);
+    double theta_leg_offset = get_theta_leg_offset(position[0]);
     if (position[1] > -M_PI_2 && position[1] < M_PI_2)
     {
-      beta = position[1];
+      beta = position[1] + theta_leg_offset;
       F_leg_comp = -G_leg * l_leg * cos(beta);
     }
     else
     {
       if (position[1] > -M_PI && position[1] < -M_PI_2)
       {
-        beta = -position[1] - M_PI;
+        beta = -position[1] - M_PI - theta_leg_offset;
       }
       else if (position[1] > M_PI_2 && position[1] < M_PI)
       {
-        beta = M_PI - position[1];
+        beta = M_PI - position[1] - theta_leg_offset;
       }
       F_leg_comp = G_leg * l_leg * cos(beta);
     }

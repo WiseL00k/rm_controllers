@@ -45,13 +45,23 @@ private:
     angleCmd_ = msg->data;
   }
 
+  static inline double get_LM(const double& l)
+  {
+    return 0.218f * l + 0.075f;
+  };
+
+  static inline double get_theta_leg_offset(const double& l)
+  {
+    return M_PI_4 / 2;
+  }
+
   const double g_{ 9.81 };
 
   double f_spring_force(double L0);
   double s2_{}, s3_{}, alpha_s_{};
 
   bool leg_gravity_compensation_debug_{ false };
-  double leg_mass_{ 1.5 }, LM_weight_{ 0.5 };
+  double leg_mass_{ 1.5 };
 
   hardware_interface::JointHandle jointThigh_, jointKnee_;
   control_toolbox::Pid pidLength_, pidAngle_;
