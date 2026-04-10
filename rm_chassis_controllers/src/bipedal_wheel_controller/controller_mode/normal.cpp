@@ -295,16 +295,21 @@ double Normal::calculateSupportForce(double F, double Tp, double leg_length, con
                                      const std::shared_ptr<ModelParams>& model_params, const ros::Duration& period)
 {
   static double last_ddot_zM = acc_z - model_params->g, last_dot_theta = x(1),
-                last_ddot_theta = (x(1) - last_dot_theta) / period.toSec();
+                last_ddot_theta = (x(1) - last_dot_theta) / period.toSec(), last_ddot_leg_len, d_leg_len[3]{};
+  d_leg_len[0] = d_leg_len[1];
+  d_leg_len[1] = d_leg_len[2];
+  d_leg_len[2] = leg_len_spd;
 
   double P = F * cos(x(0)) + Tp * sin(x(0)) / leg_length;
   // lp filter
-  double ddot_zM = 0.7 * (acc_z - model_params->g) + 0.3 * last_ddot_zM;
-  double ddot_theta = 0.7 * ((x(1) - last_dot_theta) / period.toSec()) + 0.3 * last_ddot_theta;
+  double ddot_zM = 0.3 * (acc_z - model_params->g) + 0.7 * last_ddot_zM;
+  double ddot_theta = 0.3 * ((x(1) - last_dot_theta) / period.toSec()) + 0.7 * last_ddot_theta;
+  double ddot_leg_len = 0.3 * (d_leg_len[2] - d_leg_len[0]) / 2 * period.toSec() + 0.7 * last_ddot_leg_len;
   last_dot_theta = x(1);
   last_ddot_theta = ddot_theta;
-  double ddot_zw = ddot_zM - leg_length * cos(x(0)) + 2 * leg_len_spd * x(1) * sin(x(0)) +
-                   +leg_length * (ddot_theta * sin(x(0)) + x(1) * x(1) * cos(x(0)));
+  last_ddot_leg_len = ddot_leg_len;
+  double ddot_zw = ddot_zM - ddot_leg_len * cos(x(0)) + 2 * leg_len_spd * x(1) * sin(x(0)) +
+                   +leg_length * (ddot_theta * sin(x(0)) + leg_length * x(1) * x(1) * cos(x(0)));
   double Fn = model_params->m_w * ddot_zw + model_params->m_w * model_params->g + P;
 
   return Fn;
@@ -320,7 +325,7 @@ bool Normal::unstickDetection(const double& F_leg, const double& Tp, const doubl
   static ros::Time judgeTime;
   double Fn = calculateSupportForce(F_leg, Tp, leg_length, leg_len_spd, acc_z, x, model_params, period);
   supportForceAveragePtr->input(Fn);
-  bool unstick_ = supportForceAveragePtr->output() < 10;
+  bool unstick_ = supportForceAveragePtr->output() < 15;
 
   if (unstick_ != last_unstick_)
   {
