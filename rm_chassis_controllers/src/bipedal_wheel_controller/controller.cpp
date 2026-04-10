@@ -172,13 +172,18 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
   //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
   //  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
 
+  double left_F_real[2]{}, right_F_real[2]{};
   // [0] is length, [1] is angle
   vmc_->leg_pos(left_angle[0], left_angle[1], left_pos);
   vmc_->leg_pos(right_angle[0], right_angle[1], right_pos);
-  vmc_->leg_spd(left_hip_joint_handle_.getVelocity(), left_knee_joint_handle_.getVelocity(), left_angle[0],
-                left_angle[1], left_spd);
   vmc_->leg_spd(right_hip_joint_handle_.getVelocity(), right_knee_joint_handle_.getVelocity(), right_angle[0],
                 right_angle[1], right_spd);
+  vmc_->leg_spd(left_hip_joint_handle_.getVelocity(), left_knee_joint_handle_.getVelocity(), left_angle[0],
+                left_angle[1], left_spd);
+  vmc_->leg_conv_t(left_hip_joint_handle_.getEffort(), left_knee_joint_handle_.getEffort(), left_angle[0],
+                   left_angle[1], left_F_real);
+  vmc_->leg_conv_t(right_hip_joint_handle_.getEffort(), right_knee_joint_handle_.getEffort(), right_angle[0],
+                   right_angle[1], right_F_real);
 
   // leg_spd lp filter
   static double last_left_theta_spd = left_spd[1], last_right_theta_spd = right_spd[1];
@@ -264,8 +269,11 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
   mode_manager_->getModeImpl()->updateEstimation(x_left_, x_right_);
   mode_manager_->getModeImpl()->updateLegKinematics(left_angle, right_angle, left_pos, left_spd, right_pos, right_spd);
   mode_manager_->getModeImpl()->updateBaseState(angular_vel_base, linear_acc_base, roll, pitch, yaw);
+  mode_manager_->getModeImpl()->updateLegFReal(left_F_real, right_F_real);
   debugPub_->add("left_spring_force", f_spring_force(left_pos[0]));
   debugPub_->add("right_spring_force", f_spring_force(right_pos[0]));
+  debugPub_->add("left_F_real", left_F_real[0]);
+  debugPub_->add("right_F_real", right_F_real[0]);
   debugPub_->add("wheel_vel_aver", wheel_vel_aver);
   debugPub_->publish();
 }
