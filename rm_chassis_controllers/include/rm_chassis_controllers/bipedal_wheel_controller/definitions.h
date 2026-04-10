@@ -101,7 +101,7 @@ enum
 };
 
 constexpr std::array<std::pair<JumpPhase, const double>, 3> jumpLengthDes = {
-  { { JumpPhase::LEG_RETRACTION, 0.12 }, { JumpPhase::JUMP_UP, 0.38 }, { JumpPhase::OFF_GROUND, 0.15 } }
+  { { JumpPhase::LEG_RETRACTION, 0.13 }, { JumpPhase::JUMP_UP, 0.34 }, { JumpPhase::OFF_GROUND, 0.13 } }
 };
 
 constexpr static const int STATE_DIM = 6;
