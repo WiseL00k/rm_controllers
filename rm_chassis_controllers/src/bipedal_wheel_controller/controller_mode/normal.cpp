@@ -125,7 +125,7 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
          right_spring_force = controller->f_spring_force(right_pos_[0]);
   double F_inertia = model_params_->M * friction_circle;
   Eigen::Matrix<double, 2, 1> F_leg;
-
+  F_leg.setZero();
   // check jump
   if (jump_phase_ == JumpPhase::IDLE &&
       ros::Time::now() - lastJumpTime_ > ros::Duration(control_params_->jumpOverTime_) && controller->getJumpCmd())
@@ -147,8 +147,8 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   else
   {
     leg_length_des = jumpLengthDes[jump_phase_].second;
-    double s_left = (left_pos_[0] - 0.12) / (0.4 - 0.12);
-    double s_right = (right_pos_[0] - 0.12) / (0.4 - 0.12);
+    double s_left = (left_pos_[0] - 0.12) / (0.35 - 0.12);
+    double s_right = (right_pos_[0] - 0.12) / (0.35 - 0.12);
     switch (jump_phase_)
     {
       case JumpPhase::LEG_RETRACTION:
@@ -157,12 +157,12 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
         F_leg(LEFT) = pid_legs_[LEFT]->computeCommand(leg_length_des - current_leg_length, period) +
                       gravity / cos(left_pos_[1]) + F_roll - left_spring_force;
         F_leg(RIGHT) = pid_legs_[RIGHT]->computeCommand(leg_length_des - current_leg_length, period) +
-                       gravity / cos(left_pos_[1]) - F_roll - right_spring_force;
-        if (current_leg_length < leg_length_des + 0.01)
+                       gravity / cos(right_pos_[1]) - F_roll - right_spring_force;
+        if (current_leg_length < leg_length_des + 0.1)
         {
           jumpTime_++;
         }
-        if (jumpTime_ >= 6)
+        if (jumpTime_ >= 10)
         {
           jumpTime_ = 0;
           jump_phase_ = JumpPhase::JUMP_UP;
@@ -175,8 +175,8 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
         //                   control_params_->p3_ * left_pos_[0] + control_params_->p4_ + gravity;
         //        F_leg(1) = control_params_->p1_ * pow(right_pos_[0], 3) + control_params_->p2_ * pow(right_pos_[0], 2) +
         //                   control_params_->p3_ * right_pos_[0] + control_params_->p4_ + gravity;
-        F_leg(0) = 400 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
-        F_leg(1) = 400 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
+        F_leg(0) = 200 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
+        F_leg(1) = 200 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
         if (current_leg_length > leg_length_des)
         {
           jumpTime_++;
@@ -193,8 +193,8 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
         //                     control_params_->p3_ * left_pos_[0] + control_params_->p4_);
         //        F_leg(1) = -(control_params_->p1_ * pow(right_pos_[0], 3) + control_params_->p2_ * pow(right_pos_[0], 2) +
         //                     control_params_->p3_ * right_pos_[0] + control_params_->p4_);
-        F_leg(0) = -400 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3));
-        F_leg(1) = -400 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3));
+        F_leg(0) = -200 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3));
+        F_leg(1) = -200 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3));
 
         if (current_leg_length < leg_length_des)
         {
@@ -219,11 +219,15 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   k_right_unstick.block<1, 2>(1, 0) = k_right.block<1, 2>(1, 0);
 
   bool left_unstick{ false }, right_unstick{ false };
-  if (controller->getCompleteStand() && jump_phase_ != JumpPhase::LEG_RETRACTION)
+  if (jump_phase_ == JumpPhase::OFF_GROUND)
   {
-    left_unstick = unstickDetection(F_leg[LEFT], u_left(1), left_spd_[0], left_pos_[0], linear_acc_base_.z,
+    left_unstick = right_unstick = true;
+  }
+  else if (controller->getCompleteStand() && jump_phase_ != JumpPhase::LEG_RETRACTION)
+  {
+    left_unstick = unstickDetection(left_F_real_[0], u_left(1), left_spd_[0], left_pos_[0], linear_acc_base_.z,
                                     model_params_, x_left_, leftSupportForceAveragePtr_, period);
-    right_unstick = unstickDetection(F_leg[RIGHT], u_right(1), right_spd_[0], right_pos_[0], linear_acc_base_.z,
+    right_unstick = unstickDetection(right_F_real_[0], u_right(1), right_spd_[0], right_pos_[0], linear_acc_base_.z,
                                      model_params_, x_right_, rightSupportForceAveragePtr_, period);
   }
   bool unstick[2]{};
