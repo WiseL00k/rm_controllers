@@ -117,7 +117,7 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
       F_leg_comp = G_leg * l_leg * cos(beta);
     }
     Tp_leg_comp = G_leg * l_leg * sin(beta);
-    effortCmd[0] = F_leg_comp;
+    effortCmd[0] = F_leg_comp - f_spring_force_comp;
     effortCmd[1] = Tp_leg_comp;
     debugPub_->add("F_leg_comp", F_leg_comp);
     debugPub_->add("Tp_leg_comp", Tp_leg_comp);

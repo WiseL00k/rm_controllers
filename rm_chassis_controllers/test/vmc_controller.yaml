@@ -11,8 +11,8 @@ controllers:
     leg_gravity_compensation_debug: true
     leg_mass: 1.95
     LM_weight: 0.6
-    #    spring_force: 100.0
-    spring_force: 0.0
+    spring_force: 200.0
+    #    spring_force: 0.0
     s2: 0.0775
     s3: 0.205
     alpha_s: 0.2
@@ -21,8 +21,8 @@ controllers:
     thigh_joint: left_hip_joint
     knee_joint: left_knee_joint
     # series_legged1
-    #    l1: 0.218
-    #    l2: 0.26
+    l1: 0.218
+    l2: 0.26
     # series_legged2
-    l1: 0.21
-    l2: 0.248
+#    l1: 0.21
+#    l2: 0.248
