@@ -61,7 +61,8 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   double friction_circle_alpha = abs(friction_circle) > 3.75f ? (3.75f / abs(friction_circle)) : 1.0f;
   // PID
   double T_yaw = pid_yaw_vel_->computeCommand(friction_circle_alpha * vel_cmd_.z - angular_vel_base_.z, period);
-  double T_theta_diff = pid_theta_diff_->computeCommand(right_pos_[1] - left_pos_[1], period);
+  double theta_diff = right_pos_[1] - left_pos_[1];
+  double T_theta_diff = pid_theta_diff_->computeCommand(theta_diff, period);
   double F_roll = pid_roll_->computeCommand(0. - roll_, period);
 
   // LQR
@@ -92,17 +93,20 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
 
   if (controller->getCompleteStand())
   {
+    x_left_ref(2) = x_right_ref(2) = pos_des_;
     if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
     {
-      x_left_ref(2) = x_right_ref(2) = pos_des_;
       x_left_ref(3) = x_right_ref(3) = friction_circle_alpha * vel_cmd_.x;
     }
     else
     {
-      x_left_ref(2) = x_right_ref(2) = 0.0f;
       x_left_ref(3) = x_right_ref(3) = 0.0f;
     }
     leg_length_des = protect_flag_ ? controller->getDefaultLegLength() : controller->getLegCmd();
+  }
+  else
+  {
+    leg_length_des = controller->getDefaultLegLength();
   }
   x_left(0) -= controller->getBaseState() != rm_msgs::ChassisCmd::RAW ? bias_params_->theta : bias_params_->raw_theta;
   x_right(0) -= controller->getBaseState() != rm_msgs::ChassisCmd::RAW ? bias_params_->theta : bias_params_->raw_theta;
