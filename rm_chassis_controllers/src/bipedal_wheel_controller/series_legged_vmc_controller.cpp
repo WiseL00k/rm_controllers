@@ -77,7 +77,7 @@ void VMCController::starting(const ros::Time& /*time*/)
 
 void VMCController::update(const ros::Time& time, const ros::Duration& period)
 {
-  double knee_angle = 0, thigh_angle = 0, position[2], speed[2];
+  double knee_angle = 0, thigh_angle = 0;
 
   // series leg vmc
   // gazebo
@@ -87,32 +87,36 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   // five link vmc
   thigh_angle = jointThigh_.getPosition() + M_PI;
   knee_angle = jointKnee_.getPosition();
-  vmcPtr_->leg_pos(thigh_angle, knee_angle, position);
-  vmcPtr_->leg_spd(jointThigh_.getVelocity(), jointKnee_.getVelocity(), thigh_angle, knee_angle, speed);
+  vmcPtr_->calc_jacobian(thigh_angle, knee_angle);
+  vmcPtr_->leg_pos(thigh_angle, knee_angle);
+  vmcPtr_->leg_spd(jointThigh_.getVelocity(), jointKnee_.getVelocity());
+
+  const auto& leg_pos = vmcPtr_->getPos();
+  const auto& leg_spd = vmcPtr_->getSpd();
 
   double effortCmd[2], jointCmd[2];
-  double angle_error = angles::shortest_angular_distance(position[1], angleCmd_);
-  double f_spring_force_comp = f_spring_force(position[0]);
+  double angle_error = angles::shortest_angular_distance(leg_pos.theta, angleCmd_);
+  double f_spring_force_comp = f_spring_force(leg_pos.L0);
   if (leg_gravity_compensation_debug_)
   {
     double Tp_leg_comp{}, F_leg_comp{}, beta{};
     double G_leg = leg_mass_ * g_;
-    double l_leg = get_LM(position[0]);
-    double theta_leg_offset = get_theta_leg_offset(position[0]);
-    if (position[1] > -M_PI_2 && position[1] < M_PI_2)
+    double l_leg = get_LM(leg_pos.L0);
+    double theta_leg_offset = get_theta_leg_offset(leg_pos.L0);
+    if (leg_pos.theta > -M_PI_2 && leg_pos.theta < M_PI_2)
     {
-      beta = position[1] + theta_leg_offset;
+      beta = leg_pos.theta + theta_leg_offset;
       F_leg_comp = -G_leg * l_leg * cos(beta);
     }
     else
     {
-      if (position[1] > -M_PI && position[1] < -M_PI_2)
+      if (leg_pos.theta > -M_PI && leg_pos.theta < -M_PI_2)
       {
-        beta = -position[1] - M_PI - theta_leg_offset;
+        beta = -leg_pos.theta - M_PI - theta_leg_offset;
       }
-      else if (position[1] > M_PI_2 && position[1] < M_PI)
+      else if (leg_pos.theta > M_PI_2 && leg_pos.theta < M_PI)
       {
-        beta = M_PI - position[1] - theta_leg_offset;
+        beta = M_PI - leg_pos.theta - theta_leg_offset;
       }
       F_leg_comp = G_leg * l_leg * cos(beta);
     }
@@ -124,18 +128,18 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   }
   else
   {
-    effortCmd[0] = pidLength_.computeCommand(lengthCmd_ - position[0], period) - f_spring_force(position[0]);
+    effortCmd[0] = pidLength_.computeCommand(lengthCmd_ - leg_pos.L0, period) - f_spring_force(leg_pos.L0);
     effortCmd[1] = pidAngle_.computeCommand(angle_error, period);
   }
 
-  vmcPtr_->leg_conv(effortCmd[0], effortCmd[1], thigh_angle, knee_angle, jointCmd);
+  vmcPtr_->leg_conv(effortCmd[0], effortCmd[1], jointCmd);
   std_msgs::Float64MultiArray state;
   state.data.push_back(thigh_angle);
   state.data.push_back(knee_angle);
-  state.data.push_back(position[0]);
-  state.data.push_back(position[1]);
-  state.data.push_back(speed[0]);
-  state.data.push_back(speed[1]);
+  state.data.push_back(leg_pos.L0);
+  state.data.push_back(leg_pos.theta);
+  state.data.push_back(leg_spd.dL0);
+  state.data.push_back(leg_spd.dTheta);
   state.data.push_back(angle_error);
   state.data.push_back(effortCmd[0]);
   state.data.push_back(effortCmd[1]);
@@ -144,6 +148,7 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
   statePublisher_.publish(state);
 
   debugPub_->add("f_spring_force", f_spring_force_comp);
+  debugPub_->add("F_effortCmd", effortCmd[0]);
   debugPub_->publish();
 
   std_msgs::Float64MultiArray jointCmdState;
@@ -157,13 +162,15 @@ void VMCController::update(const ros::Time& time, const ros::Duration& period)
 
 double VMCController::f_spring_force(double L0)
 {
-  double l1 = vmcPtr_->getL1(), l2 = vmcPtr_->getL2(), Fs = spring_force_, s2 = s2_, s3 = s3_, alpha_s = alpha_s_;
-  double cos_theta3, theta3, ls, Fv;
-  cos_theta3 = (l1 * l1 + l2 * l2 - L0 * L0) / (2 * l1 * l2);
-  theta3 = acos(cos_theta3);
-  ls = sqrt(s2 * s2 + s3 * s3 - 2 * s2 * s3 * cos(theta3 - alpha_s));
-  Fv = Fs * (L0 * s2 * s3 * sin(theta3 - alpha_s)) / (ls * l1 * l2 * sin(theta3));
-  return Fv;
+  //  double l1 = vmcPtr_->getL1(), l2 = vmcPtr_->getL2(), Fs = spring_force_, s2 = s2_, s3 = s3_, alpha_s = alpha_s_;
+  //  double cos_theta3, theta3, ls, Fv;
+  //  cos_theta3 = (l1 * l1 + l2 * l2 - L0 * L0) / (2 * l1 * l2);
+  //  theta3 = acos(cos_theta3);
+  //  ls = sqrt(s2 * s2 + s3 * s3 - 2 * s2 * s3 * cos(theta3 - alpha_s));
+  //  Fv = Fs * (L0 * s2 * s3 * sin(theta3 - alpha_s)) / (ls * l1 * l2 * sin(theta3));
+  //  return Fv;
+
+  return ((2094.45f * L0 - 3091.28f) * L0 + 1408.375f) * L0 - 80.91f;
 }
 
 }  // namespace rm_chassis_controllers

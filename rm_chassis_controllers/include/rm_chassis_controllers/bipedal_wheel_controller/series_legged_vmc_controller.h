@@ -14,11 +14,6 @@
 #include <std_msgs/Float64MultiArray.h>
 #include <rm_common/DebugDataPublisher.h>
 
-#include "bipedal_wheel_controller/vmc/leg_params.h"
-#include "bipedal_wheel_controller/vmc/leg_conv.h"
-#include "bipedal_wheel_controller/vmc/leg_pos.h"
-#include "bipedal_wheel_controller/vmc/leg_spd.h"
-
 #include "bipedal_wheel_controller/vmc/VMC.h"
 
 #include <utility>
