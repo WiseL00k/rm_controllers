@@ -54,12 +54,12 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
 
   unstick_pub_ = controller_nh.advertise<std_msgs::Bool>("unstick", 1);
   upstair_status_pub_ = controller_nh.advertise<rm_msgs::LeggedUpstairStatus>("upstair_status", 1);
-  legged_chassis_status_pub_.reset((new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisStatus>(
-      controller_nh, "legged_chassis_status", 100)));
+  legged_chassis_status_pub_.reset((
+      new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisStatus>(controller_nh, "legged_chassis_status", 10)));
   legged_chassis_mode_pub_.reset(
       (new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisMode>(controller_nh, "legged_chassis_mode", 10)));
   lqr_status_pub_.reset(
-      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedLQRStatus>(controller_nh, "lqr_status", 100)));
+      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedLQRStatus>(controller_nh, "lqr_status", 10)));
   leg_state_[LEFT].x.setZero();
   leg_state_[RIGHT].x.setZero();
 
