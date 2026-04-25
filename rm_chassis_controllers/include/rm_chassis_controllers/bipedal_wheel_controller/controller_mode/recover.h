@@ -36,10 +36,10 @@ class Recover : public ModeBase
   } LegRecoveryState;
 
 public:
-  Recover(const std::vector<hardware_interface::JointHandle*>& joint_handles,
+  Recover(BipedalControllerInterface* controller_, const std::vector<hardware_interface::JointHandle*>& joint_handles,
           const std::vector<control_toolbox::Pid*>& pid_legs, const std::vector<control_toolbox::Pid*>& pid_thetas,
           control_toolbox::Pid* pid_theta_diff);
-  void execute(BipedalController* controller, const ros::Time& time, const ros::Duration& period) override;
+  void execute(const ros::Time& time, const ros::Duration& period) override;
   inline void detectChassisStateToRecover();
   inline void detectLegRecoveryState(LegRecoveryState& recovery_state, const double& leg_pos);
   const char* name() const override
@@ -56,5 +56,6 @@ private:
   LegRecoveryState left_recovery_leg, right_recovery_leg;
   RecoveryChassisState recovery_chassis_state_{ ForwardSlip };
   bool detectd_flag{ false };
+  ChassisState chassis_state_;
 };
 }  // namespace rm_chassis_controllers

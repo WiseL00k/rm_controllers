@@ -12,13 +12,15 @@
 #include "bipedal_wheel_controller/controller_mode/recover.h"
 #include "bipedal_wheel_controller/controller_mode/normal.h"
 #include "bipedal_wheel_controller/controller_mode/upstairs.h"
+#include "bipedal_wheel_controller/controller_interface.h"
 
 namespace rm_chassis_controllers
 {
 class ModeManager
 {
 public:
-  ModeManager(ros::NodeHandle& controller_nh, const std::vector<hardware_interface::JointHandle*>& joint_handles);
+  ModeManager(BipedalControllerInterface* controller, ros::NodeHandle& controller_nh,
+              const std::vector<hardware_interface::JointHandle*>& joint_handles);
   virtual ~ModeManager() = default;
   void switchMode(int mode)
   {

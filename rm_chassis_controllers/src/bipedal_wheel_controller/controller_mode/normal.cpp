@@ -7,10 +7,12 @@
 
 namespace rm_chassis_controllers
 {
-Normal::Normal(const std::vector<hardware_interface::JointHandle*>& joint_handles,
+Normal::Normal(BipedalControllerInterface* controller_,
+               const std::vector<hardware_interface::JointHandle*>& joint_handles,
                const std::vector<control_toolbox::Pid*>& pid_legs, control_toolbox::Pid* pid_yaw_vel,
                control_toolbox::Pid* pid_theta_diff, control_toolbox::Pid* pid_roll)
-  : joint_handles_(joint_handles)
+  : ModeBase(controller_)
+  , joint_handles_(joint_handles)
   , pid_legs_(pid_legs)
   , pid_yaw_vel_(pid_yaw_vel)
   , pid_theta_diff_(pid_theta_diff)
@@ -18,21 +20,30 @@ Normal::Normal(const std::vector<hardware_interface::JointHandle*>& joint_handle
 {
   leftSupportForceAveragePtr_ = std::make_shared<MovingAverageFilter<double>>(4);
   rightSupportForceAveragePtr_ = std::make_shared<MovingAverageFilter<double>>(4);
+  if (controller_->getLegThresholdParams() != nullptr)
+    unstick_threshold = controller_->getLegThresholdParams()->unstick_threshold;
 }
 
-void Normal::execute(BipedalController* controller, const ros::Time& time, const ros::Duration& period)
+void Normal::execute(const ros::Time& time, const ros::Duration& period)
 {
-  auto bias_params_ = controller->getBiasParams();
+  const auto& bias_params_ = controller->getBiasParams();
   if (!controller->getStateChange())
   {
     ROS_INFO("[balance] Enter NORMAL");
     controller->clearStatus();
     jump_phase_ = JumpPhase::IDLE;
-    pos_des_ = bias_params_->x;
+    pos_des_ = 0.0f;
     controller->setStateChange(true);
   }
+  const auto& chassis_state = controller->getChassisState();
+  auto& left_leg_state = controller->getLegState(LEFT);
+  auto& right_leg_state = controller->getLegState(RIGHT);
+  const auto& left_pos = left_leg_state.vmc->getPos();
+  const auto& right_pos = right_leg_state.vmc->getPos();
+  const auto& left_spd = left_leg_state.vmc->getSpd();
+  const auto& right_spd = right_leg_state.vmc->getSpd();
 
-  if (abs(x_left_[4]) < 0.2 && (abs(x_left_[0] + x_right_[0]) / 2.0f) < 0.15)
+  if (abs(left_leg_state.x[4]) < 0.2 && (abs(left_leg_state.x[0] + right_leg_state.x[0]) / 2.0f) < 0.1)
   {
     protect_flag_ = false;
     if (!controller->getCompleteStand())
@@ -42,14 +53,14 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   }
 
   auto vel_cmd_ = controller->getVelCmd();
-  double current_leg_length = (left_pos_[0] + right_pos_[0]) / 2.0f;
-  if (abs(x_left_[3]) < 0.1 && abs(vel_cmd_.x) < 0.1)
+  double current_leg_length = (left_pos.L0 + right_pos.L0) / 2.0f;
+  if (abs(left_leg_state.x[3]) < 0.1f && abs(vel_cmd_.x) < 0.01f)
   {
     controller->setMoveFlag(false);
     if (x_offset_flag_)
     {
       x_offset_flag_ = false;
-      pos_des_ = current_leg_length * sin(-(x_left_(0) + x_right_(0)) / 2.0f) + bias_params_->x;
+      pos_des_ = current_leg_length * sin(-(left_leg_state.x(0) + right_leg_state.x(0)) / 2.0f) + bias_params_->x;
     }
   }
   if (controller->getMoveFlag())
@@ -57,13 +68,13 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
     x_offset_flag_ = true;
   }
 
-  double friction_circle = x_left_(3) * angular_vel_base_.z;
+  double friction_circle = left_leg_state.x(3) * chassis_state.angular_vel.z;
   double friction_circle_alpha = abs(friction_circle) > 3.75f ? (3.75f / abs(friction_circle)) : 1.0f;
   // PID
-  double T_yaw = pid_yaw_vel_->computeCommand(friction_circle_alpha * vel_cmd_.z - angular_vel_base_.z, period);
-  double theta_diff = right_pos_[1] - left_pos_[1];
+  double T_yaw = pid_yaw_vel_->computeCommand(friction_circle_alpha * vel_cmd_.z - chassis_state.angular_vel.z, period);
+  double theta_diff = right_pos.theta - left_pos.theta;
   double T_theta_diff = pid_theta_diff_->computeCommand(theta_diff, period);
-  double F_roll = pid_roll_->computeCommand(0. - roll_, period);
+  double F_roll = pid_roll_->computeCommand(0. - chassis_state.roll, period);
 
   // LQR
   Matrix<double, 4, 12> coeffs_ = controller->getCoeffs();
@@ -75,18 +86,18 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   {
     for (int j = 0; j < 6; ++j)
     {
-      k_left(i, j) = coeffs_(0, i + 2 * j) * pow(left_pos_[0], 3) + coeffs_(1, i + 2 * j) * pow(left_pos_[0], 2) +
-                     coeffs_(2, i + 2 * j) * left_pos_[0] + coeffs_(3, i + 2 * j);
-      k_right(i, j) = coeffs_(0, i + 2 * j) * pow(right_pos_[0], 3) + coeffs_(1, i + 2 * j) * pow(right_pos_[0], 2) +
-                      coeffs_(2, i + 2 * j) * right_pos_[0] + coeffs_(3, i + 2 * j);
+      k_left(i, j) = coeffs_(0, i + 2 * j) * pow(left_pos.L0, 3) + coeffs_(1, i + 2 * j) * pow(left_pos.L0, 2) +
+                     coeffs_(2, i + 2 * j) * left_pos.L0 + coeffs_(3, i + 2 * j);
+      k_right(i, j) = coeffs_(0, i + 2 * j) * pow(right_pos.L0, 3) + coeffs_(1, i + 2 * j) * pow(right_pos.L0, 2) +
+                      coeffs_(2, i + 2 * j) * right_pos.L0 + coeffs_(3, i + 2 * j);
     }
   }
 
   Eigen::Matrix<double, CONTROL_DIM, 1> u_left, u_right;
   u_left.setZero();
   u_right.setZero();
-  auto x_left = x_left_;
-  auto x_right = x_right_;
+  auto x_left = left_leg_state.x;
+  auto x_right = right_leg_state.x;
   Matrix<double, 6, 1> x_left_ref, x_right_ref;
   x_left_ref.setZero();
   x_right_ref.setZero();
@@ -100,7 +111,7 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
     }
     else
     {
-      x_left_ref(3) = x_right_ref(3) = 0.0f;
+      x_left_ref(3) = x_right_ref(3) = vel_cmd_.x;
     }
     leg_length_des = protect_flag_ ? controller->getDefaultLegLength() : controller->getLegCmd();
   }
@@ -124,10 +135,13 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   auto control_params_ = controller->getControlParams();
   //  auto f_spring_force = [](double l) { return ((2094.45f * l - 3091.28f) * l + 1408.375f) * l - 80.91f; };
   double gravity = model_params_->f_gravity,
-         //         left_spring_force = model_params_->f_spring, right_spring_force = model_params_->f_spring;
-      left_spring_force = controller->f_spring_force(left_pos_[0]),
-         right_spring_force = controller->f_spring_force(right_pos_[0]);
-  double F_inertia = model_params_->M * friction_circle;
+         left_spring_force = controller->f_spring_force(left_pos.L0) / cos(left_pos.theta),
+         right_spring_force = controller->f_spring_force(right_pos.L0) / cos(right_pos.theta);
+  double F_inertia_left =
+      model_params_->M * friction_circle * left_pos.L0 / controller->getChassisGeometryParams()->wheel_track;
+  double F_inertia_right =
+      model_params_->M * friction_circle * right_pos.L0 / controller->getChassisGeometryParams()->wheel_track;
+  double F_pid_left{}, F_pid_right{};
   Eigen::Matrix<double, 2, 1> F_leg;
   F_leg.setZero();
   // check jump
@@ -139,30 +153,35 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   }
   if (jump_phase_ == JumpPhase::IDLE)
   {
-    double left_length_des = controller->getCompleteStand() ? leg_length_des : controller->getDefaultLegLength();
-    double right_length_des = controller->getCompleteStand() ? leg_length_des : controller->getDefaultLegLength();
-    double F_pid_left = pid_legs_[LEFT]->computeCommand(left_length_des - current_leg_length, period);
-    double F_pid_right = pid_legs_[RIGHT]->computeCommand(right_length_des - current_leg_length, period);
+    static double last_left_length_des = leg_length_des, last_right_length_des = leg_length_des;
+    double left_length_des = controller->getCompleteStand() ? (0.8 * leg_length_des + 0.2 * last_left_length_des) :
+                                                              controller->getDefaultLegLength();
+    double right_length_des = controller->getCompleteStand() ? (0.8 * leg_length_des + 0.2 * last_right_length_des) :
+                                                               controller->getDefaultLegLength();
+    last_left_length_des = left_length_des;
+    last_right_length_des = right_length_des;
+    F_pid_left = pid_legs_[LEFT]->computeCommand(left_length_des - current_leg_length, period);
+    F_pid_right = pid_legs_[RIGHT]->computeCommand(right_length_des - current_leg_length, period);
     F_pid_left = abs(F_pid_left) > 150 ? std::copysign(1, F_pid_left) * 150 : F_pid_left;
     F_pid_right = abs(F_pid_right) > 150 ? std::copysign(1, F_pid_right) * 150 : F_pid_right;
-    F_leg[LEFT] = F_pid_left - F_inertia + gravity / cos(left_pos_[1]) + F_roll - left_spring_force;
-    F_leg[RIGHT] = F_pid_right + F_inertia + gravity / cos(right_pos_[1]) - F_roll - right_spring_force;
+    F_leg[LEFT] = F_pid_left - F_inertia_left + gravity / cos(left_pos.theta) + F_roll - left_spring_force;
+    F_leg[RIGHT] = F_pid_right + F_inertia_right + gravity / cos(right_pos.theta) - F_roll - right_spring_force;
   }
   else
   {
     leg_length_des = jumpLengthDes[jump_phase_].second;
-    double s_left = (left_pos_[0] - 0.12) / (0.35 - 0.12);
-    double s_right = (right_pos_[0] - 0.12) / (0.35 - 0.12);
+    double s_left = (left_pos.L0 - 0.12) / (0.35 - 0.11);
+    double s_right = (right_pos.L0 - 0.12) / (0.35 - 0.11);
     switch (jump_phase_)
     {
       case JumpPhase::LEG_RETRACTION:
       {
         ROS_INFO("[balance] ENTER LEG_RETRACTION");
         F_leg(LEFT) = pid_legs_[LEFT]->computeCommand(leg_length_des - current_leg_length, period) +
-                      gravity / cos(left_pos_[1]) + F_roll - left_spring_force;
+                      gravity / cos(left_pos.theta) + F_roll - left_spring_force;
         F_leg(RIGHT) = pid_legs_[RIGHT]->computeCommand(leg_length_des - current_leg_length, period) +
-                       gravity / cos(right_pos_[1]) - F_roll - right_spring_force;
-        if (current_leg_length < leg_length_des + 0.1)
+                       gravity / cos(right_pos.theta) - F_roll - right_spring_force;
+        if (current_leg_length < leg_length_des + 0.02f)
         {
           jumpTime_++;
         }
@@ -175,12 +194,8 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
       }
       case JumpPhase::JUMP_UP:
         ROS_INFO("[balance] ENTER JUMP_UP");
-        //        F_leg(0) = control_params_->p1_ * pow(left_pos_[0], 3) + control_params_->p2_ * pow(left_pos_[0], 2) +
-        //                   control_params_->p3_ * left_pos_[0] + control_params_->p4_ + gravity;
-        //        F_leg(1) = control_params_->p1_ * pow(right_pos_[0], 3) + control_params_->p2_ * pow(right_pos_[0], 2) +
-        //                   control_params_->p3_ * right_pos_[0] + control_params_->p4_ + gravity;
-        F_leg(0) = 200 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
-        F_leg(1) = 200 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
+        F_leg(0) = 225 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
+        F_leg(1) = 225 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
         if (current_leg_length > leg_length_des)
         {
           jumpTime_++;
@@ -193,18 +208,16 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
         break;
       case JumpPhase::OFF_GROUND:
         ROS_INFO("[balance] ENTER OFF_GROUND");
-        //        F_leg(0) = -(control_params_->p1_ * pow(left_pos_[0], 3) + control_params_->p2_ * pow(left_pos_[0], 2) +
-        //                     control_params_->p3_ * left_pos_[0] + control_params_->p4_);
-        //        F_leg(1) = -(control_params_->p1_ * pow(right_pos_[0], 3) + control_params_->p2_ * pow(right_pos_[0], 2) +
-        //                     control_params_->p3_ * right_pos_[0] + control_params_->p4_);
-        F_leg(0) = -200 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3));
-        F_leg(1) = -200 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3));
+        double s_left_flip = 1 - s_left;
+        double s_right_flip = 1 - s_left;
+        F_leg(0) = -75 * (1 - 3 * pow(s_left_flip, 2) + 2 * pow(s_left_flip, 3)) - left_spring_force;
+        F_leg(1) = -75 * (1 - 3 * pow(s_right_flip, 2) + 2 * pow(s_right_flip, 3)) - right_spring_force;
 
-        if (current_leg_length < leg_length_des)
+        if (current_leg_length < leg_length_des + 0.02f)
         {
           jumpTime_++;
         }
-        if (jumpTime_ >= 8)
+        if (jumpTime_ >= 50)
         {
           jumpTime_ = 0;
           jump_phase_ = JumpPhase::IDLE;
@@ -222,21 +235,27 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
   k_left_unstick.block<1, 2>(1, 0) = k_left.block<1, 2>(1, 0);
   k_right_unstick.block<1, 2>(1, 0) = k_right.block<1, 2>(1, 0);
 
+  static bool last_left_unstick{ false }, last_right_unstick{ false };
   bool left_unstick{ false }, right_unstick{ false };
   if (jump_phase_ == JumpPhase::OFF_GROUND)
   {
     left_unstick = right_unstick = true;
   }
-  else if (controller->getCompleteStand() && jump_phase_ != JumpPhase::LEG_RETRACTION)
+  else if (controller->getCompleteStand() && jump_phase_ != JumpPhase::LEG_RETRACTION &&
+           controller->getBaseState() == rm_msgs::ChassisCmd::FOLLOW)
   {
-    left_unstick = unstickDetection(left_F_real_[0], u_left(1), left_spd_[0], left_pos_[0], linear_acc_base_.z,
-                                    model_params_, x_left_, leftSupportForceAveragePtr_, period);
-    right_unstick = unstickDetection(right_F_real_[0], u_right(1), right_spd_[0], right_pos_[0], linear_acc_base_.z,
-                                     model_params_, x_right_, rightSupportForceAveragePtr_, period);
+    left_unstick = unstickDetection(last_left_unstick ? F_pid_left : left_leg_state.vmc->getForceReal().F, u_left(1),
+                                    left_spd.dL0, left_pos.L0, chassis_state.linear_acc.z, model_params_,
+                                    left_leg_state.x, leftSupportForceAveragePtr_, period);
+    right_unstick = unstickDetection(last_right_unstick ? F_pid_right : right_leg_state.vmc->getForceReal().F,
+                                     u_right(1), right_spd.dL0, right_pos.L0, chassis_state.linear_acc.z, model_params_,
+                                     right_leg_state.x, rightSupportForceAveragePtr_, period);
   }
   bool unstick[2]{};
   unstick[0] = left_unstick;
   unstick[1] = right_unstick;
+  last_left_unstick = left_unstick;
+  last_right_unstick = right_unstick;
   Matrix<double, 2, 1> F_N{};
   F_N(LEFT) = leftSupportForceAveragePtr_->output();
   F_N(RIGHT) = rightSupportForceAveragePtr_->output();
@@ -244,30 +263,35 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
 
   updateUnstick(left_unstick, right_unstick);
   left_unstick = right_unstick = false;
-  if (controller->getCompleteStand() && left_unstick && jump_phase_ != JumpPhase::LEG_RETRACTION)
+  //  if (leg_length_des > 0.32)
+  //    left_unstick = right_unstick = false;
+  if ((controller->getCompleteStand() && left_unstick && jump_phase_ != JumpPhase::LEG_RETRACTION) ||
+      jump_phase_ == JumpPhase::OFF_GROUND)
   {
-    F_leg[LEFT] -= F_roll;
     u_left = k_left_unstick * (-x_left);
   }
-  if (controller->getCompleteStand() && right_unstick && jump_phase_ != JumpPhase::LEG_RETRACTION)
+  if ((controller->getCompleteStand() && right_unstick && jump_phase_ != JumpPhase::LEG_RETRACTION) ||
+      jump_phase_ == JumpPhase::OFF_GROUND)
   {
-    F_leg[RIGHT] += F_roll;
     u_right = k_right_unstick * (-x_right);
   }
 
   // Control
   double left_T[2], right_T[2];
-  controller->getVMCPtr()->leg_conv(F_leg[LEFT], u_left(1) + T_theta_diff, left_angle_[0], left_angle_[1], left_T);
-  controller->getVMCPtr()->leg_conv(F_leg[RIGHT], u_right(1) - T_theta_diff, right_angle_[0], right_angle_[1], right_T);
+  left_leg_state.vmc->leg_conv(F_leg[LEFT], u_left(1) + T_theta_diff, left_T);
+  right_leg_state.vmc->leg_conv(F_leg[RIGHT], u_right(1) - T_theta_diff, right_T);
   double left_wheel_cmd = left_unstick ? 0. : u_left(0) - T_yaw;
   double right_wheel_cmd = right_unstick ? 0. : u_right(0) + T_yaw;
   LegCommand left_cmd = { F_leg[LEFT], u_left[1], { left_T[0], left_T[1] } },
              right_cmd = { F_leg[RIGHT], u_right[1], { right_T[0], right_T[1] } };
 
   // upstairs
-  if (jump_phase_ == JumpPhase::IDLE && linear_acc_base_.z < -7.0 && controller->getCompleteStand() &&
-      abs(vel_cmd_.x) > 0.1 && abs(x_left(3)) > 0.1 && ((left_pos_[0] + right_pos_[0]) / 2.0f) > 0.32 &&
-      leg_length_des > 0.32)
+  //  if (jump_phase_ == JumpPhase::IDLE && linear_acc_base_.z < -7.0 && controller->getCompleteStand() &&
+  //      abs(vel_cmd_.x) > 0.1 && abs(x_left(3)) > 0.1 && ((left_pos_[0] + right_pos_[0]) / 2.0f) > 0.30 &&
+  //      leg_length_des > 0.30)
+  if (jump_phase_ == JumpPhase::IDLE && controller->getCompleteStand() && abs(x_left(0) + x_right(0)) / 2.0f > 0.50 &&
+      abs(vel_cmd_.x) > 0.1 && abs(x_left(3)) > 0.1 && ((left_pos.L0 + right_pos.L0) / 2.0f) > 0.30 &&
+      leg_length_des > 0.30)
   {
     leg_length_des = controller->getDefaultLegLength();
     controller->setMode(BalanceMode::UPSTAIRS);
@@ -277,20 +301,25 @@ void Normal::execute(BipedalController* controller, const ros::Time& time, const
     ROS_INFO("[balance] Exit NORMAL");
   }
 
-  // Protection
-  if (abs(x_left(0)) > 0.6 || abs(x_right(0)) > 0.6 || abs(pitch_) > 0.5 || abs(roll_) > 0.4)
+  if (leg_length_des < 0.22)
   {
-    protect_flag_ = true;
+    // Protection
+    if ((abs(x_left(0)) > 0.5 || abs(x_right(0)) > 0.5 || abs(chassis_state.pitch) > 0.4 ||
+         abs(chassis_state.roll) > 0.4))
+    {
+      protect_flag_ = true;
+    }
   }
-
   // Protection to sit_down
-  if (abs(x_left(0)) > 0.9 || abs(x_right(0)) > 0.9 || abs(roll_) > 1.0 || controller->getOverturn() ||
+  if (abs(x_left(0)) > 1.0 || abs(x_right(0)) > 1.0 || abs(chassis_state.pitch) > 0.6 ||
+      abs(chassis_state.roll) > 0.8 || controller->getOverturn() || abs(theta_diff) > 1.0 ||
       controller->getBaseState() == rm_msgs::ChassisCmd::FALLEN)
   {
     leg_length_des = controller->getDefaultLegLength();
-    x_left_(2) = x_right_(2) = 0;
+    left_leg_state.x(2) = right_leg_state.x(2) = 0;
     controller->setMode(BalanceMode::SIT_DOWN);
     controller->setStateChange(false);
+    controller->setCompleteStand(false);
     controller->setJumpCmd(false);
     setJointCommands(joint_handles_, { 0, 0, { 0., 0. } }, { 0, 0, { 0., 0. } });
     ROS_INFO("[balance] Exit NORMAL");
@@ -326,14 +355,14 @@ double Normal::calculateSupportForce(double F, double Tp, double leg_length, con
 bool Normal::unstickDetection(const double& F_leg, const double& Tp, const double& leg_len_spd,
                               const double& leg_length, const double& acc_z,
                               const std::shared_ptr<ModelParams>& model_params, Eigen::Matrix<double, STATE_DIM, 1> x,
-                              std::shared_ptr<MovingAverageFilter<double>> supportForceAveragePtr,
+                              const std::shared_ptr<MovingAverageFilter<double>>& supportForceAveragePtr,
                               const ros::Duration& period)
 {
   static bool maybeChange = false, last_unstick_ = false;
   static ros::Time judgeTime;
   double Fn = calculateSupportForce(F_leg, Tp, leg_length, leg_len_spd, acc_z, x, model_params, period);
   supportForceAveragePtr->input(Fn);
-  bool unstick_ = supportForceAveragePtr->output() < 15;
+  bool unstick_ = supportForceAveragePtr->output() < unstick_threshold;
 
   if (unstick_ != last_unstick_)
   {
