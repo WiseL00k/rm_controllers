@@ -11,11 +11,6 @@
 #include <pluginlib/class_list_macros.hpp>
 #include <unsupported/Eigen/MatrixFunctions>
 
-#include "bipedal_wheel_controller/vmc/leg_params.h"
-#include "bipedal_wheel_controller/vmc/leg_conv.h"
-#include "bipedal_wheel_controller/vmc/leg_spd.h"
-#include "bipedal_wheel_controller/vmc/leg_pos.h"
-
 namespace rm_chassis_controllers
 {
 bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHandle& root_nh,
@@ -37,15 +32,13 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
     joint_handles_.push_back(t.second);
   }
 
-  mode_manager_ = std::make_unique<ModeManager>(controller_nh, joint_handles_);
-  model_params_ = std::make_shared<ModelParams>();
-  control_params_ = std::make_shared<ControlParams>();
-  bias_params_ = std::make_shared<BiasParams>();
-  leg_threshold_params_ = std::make_shared<LegStateThresholdParams>();
-
-  if (!setupModelParams(controller_nh) || !setupLQR(controller_nh) || !setupBiasParams(controller_nh) ||
-      !setupControlParams(controller_nh) || !setupThresholdParams(controller_nh))
+  if (!setupParams(controller_nh))
+  {
+    ROS_ERROR("[balance] Failed to setup parameters");
     return false;
+  }
+
+  mode_manager_ = std::make_shared<ModeManager>(this, controller_nh, joint_handles_);
 
   d_srv_ =
       new dynamic_reconfigure::Server<rm_chassis_controllers::LQRWeightConfig>(ros::NodeHandle(controller_nh, "lqr"));
@@ -67,8 +60,8 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
       (new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisMode>(controller_nh, "legged_chassis_mode", 10)));
   lqr_status_pub_.reset(
       (new realtime_tools::RealtimePublisher<rm_msgs::LeggedLQRStatus>(controller_nh, "lqr_status", 100)));
-  x_left_.setZero();
-  x_right_.setZero();
+  leg_state_[LEFT].x.setZero();
+  leg_state_[RIGHT].x.setZero();
 
   // Slippage detection
   A_ << 1, 0.0, 0, 1;
@@ -105,13 +98,13 @@ void BipedalController::moveJoint(const ros::Time& time, const ros::Duration& pe
     mode_manager_->switchMode(RECOVER);
   }
   updateEstimation(time, period);
-  mode_manager_->getModeImpl()->execute(this, time, period);
+  mode_manager_->getModeImpl()->execute(time, period);
   pubState();
 }
 
 void BipedalController::clearStatus()
 {
-  x_left_(2) = x_right_(2) = 0;
+  leg_state_[LEFT].x(2) = leg_state_[RIGHT].x(2) = 0;
 }
 
 void BipedalController::updateEstimation(const ros::Time& time, const ros::Duration& period)
@@ -150,61 +143,68 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
     tf2::Vector3 z_body(0, 0, 1);
     tf2::Vector3 z_world = tf2::quatRotate(odom2base.getRotation(), z_body);
     overturn_ = (abs(pitch) > 0.65 || abs(roll) > 0.8) && z_world.z() < 0.0;
+
+    chassis_state_.angular_vel = angular_vel_base;
+    chassis_state_.linear_acc = linear_acc_base;
+    chassis_state_.roll = roll;
+    chassis_state_.pitch = pitch;
+    chassis_state_.yaw = yaw;
   }
   catch (tf2::TransformException& ex)
   {
-    ROS_WARN("%s", ex.what());
+    ROS_WARN_ONCE("%s", ex.what());
     setJointCommands(joint_handles_, { 0, 0, { 0., 0. } }, { 0, 0, { 0., 0. } });
     return;
   }
 
   // vmc
-  double left_angle[2]{}, right_angle[2]{}, left_pos[2]{}, left_spd[2]{}, right_pos[2]{}, right_spd[2]{};
+  double left_angle[2]{}, right_angle[2]{};
+
+  //  double left_pos[2]{}, left_spd[2]{}, right_pos[2]{}, right_spd[2]{};
   // [0]:hip_vmc_joint [1]:knee_vmc_joint
-  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
-  left_angle[1] = left_knee_joint_handle_.getPosition();
-  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
-  right_angle[1] = right_knee_joint_handle_.getPosition();
+  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
+  //  left_angle[1] = left_knee_joint_handle_.getPosition();
+  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
+  //  right_angle[1] = right_knee_joint_handle_.getPosition();
 
   //  gazebo
-  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
-  //  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
-  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
-  //  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
+  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
+  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
+  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
+  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
 
-  double left_F_real[2]{}, right_F_real[2]{};
-  // [0] is length, [1] is angle
-  vmc_->leg_pos(left_angle[0], left_angle[1], left_pos);
-  vmc_->leg_pos(right_angle[0], right_angle[1], right_pos);
-  vmc_->leg_spd(right_hip_joint_handle_.getVelocity(), right_knee_joint_handle_.getVelocity(), right_angle[0],
-                right_angle[1], right_spd);
-  vmc_->leg_spd(left_hip_joint_handle_.getVelocity(), left_knee_joint_handle_.getVelocity(), left_angle[0],
-                left_angle[1], left_spd);
-  vmc_->leg_conv_t(left_hip_joint_handle_.getEffort(), left_knee_joint_handle_.getEffort(), left_angle[0],
-                   left_angle[1], left_F_real);
-  vmc_->leg_conv_t(right_hip_joint_handle_.getEffort(), right_knee_joint_handle_.getEffort(), right_angle[0],
-                   right_angle[1], right_F_real);
+  // left vmc calc
+  leg_state_[LEFT].vmc->calc_jacobian(left_angle[0], left_angle[1]);
+  leg_state_[LEFT].vmc->leg_pos(left_angle[0], left_angle[1]);
+  leg_state_[LEFT].vmc->leg_spd(left_hip_joint_handle_.getVelocity(), left_knee_joint_handle_.getVelocity());
+  leg_state_[LEFT].vmc->leg_conv_t(left_hip_joint_handle_.getEffort(), left_knee_joint_handle_.getEffort());
 
-  // leg_spd lp filter
-  static double last_left_theta_spd = left_spd[1], last_right_theta_spd = right_spd[1];
-  left_spd[1] = 0.3 * left_spd[1] + 0.7 * last_left_theta_spd;
-  right_spd[1] = 0.3 * right_spd[1] + 0.7 * last_right_theta_spd;
-  last_left_theta_spd = left_spd[1];
-  last_right_theta_spd = right_spd[1];
+  // right vmc calc
+  leg_state_[RIGHT].vmc->calc_jacobian(right_angle[0], right_angle[1]);
+  leg_state_[RIGHT].vmc->leg_pos(right_angle[0], right_angle[1]);
+  leg_state_[RIGHT].vmc->leg_spd(right_hip_joint_handle_.getVelocity(), right_knee_joint_handle_.getVelocity());
+  leg_state_[RIGHT].vmc->leg_conv_t(right_hip_joint_handle_.getEffort(), right_knee_joint_handle_.getEffort());
+
+  const LegPos& left_pos = leg_state_[LEFT].vmc->getPos();
+  const LegSpd& left_spd = leg_state_[LEFT].vmc->getSpd();
+  const LegPos& right_pos = leg_state_[RIGHT].vmc->getPos();
+  const LegSpd& right_spd = leg_state_[RIGHT].vmc->getSpd();
+  const LegForce& left_F_real = leg_state_[LEFT].vmc->getForceReal();
+  const LegForce& right_F_real = leg_state_[RIGHT].vmc->getForceReal();
 
   // Slippage_detection
-  leftWheelVel = (left_wheel_joint_handle_.getVelocity() + angular_vel_base.y + left_spd[1]) * wheel_radius_;
-  rightWheelVel = (right_wheel_joint_handle_.getVelocity() + angular_vel_base.y + right_spd[1]) * wheel_radius_;
-  leftWheelVelAbsolute =
-      leftWheelVel + left_pos[0] * left_spd[1] * cos(left_pos[1] + pitch_) + left_spd[0] * sin(left_pos[1] + pitch_);
-  rightWheelVelAbsolute = rightWheelVel + right_pos[0] * right_spd[1] * cos(right_pos[1] + pitch_) +
-                          right_spd[0] * sin(right_pos[1] + pitch_);
+  leftWheelVel = (left_wheel_joint_handle_.getVelocity() + angular_vel_base.y + left_spd.dTheta) * wheel_radius_;
+  rightWheelVel = (right_wheel_joint_handle_.getVelocity() + angular_vel_base.y + right_spd.dTheta) * wheel_radius_;
+  leftWheelVelAbsolute = leftWheelVel + left_pos.L0 * left_spd.dTheta * cos(left_pos.theta + pitch) +
+                         left_spd.dL0 * sin(left_pos.theta + pitch);
+  rightWheelVelAbsolute = rightWheelVel + right_pos.L0 * right_spd.dTheta * cos(right_pos.theta + pitch) +
+                          right_spd.dL0 * sin(right_pos.theta + pitch);
 
   double wheel_vel_aver = (leftWheelVelAbsolute + rightWheelVelAbsolute) / 2.;
   R_(0, 0) = slip_flag_ ? slip_R_wheel_ : R_wheel_;
-  if (i >= sample_times_)
+  if (itor >= sample_times_)
   {  // oversampling
-    i = 0;
+    itor = 0;
     X_(0) = wheel_vel_aver;
     X_(1) = linear_acc_base.x;
     kalmanFilterPtr_->predict(U_);
@@ -213,46 +213,48 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
   else
   {
     kalmanFilterPtr_->predict(U_);
-    i++;
+    itor++;
   }
   auto x_hat_vel = kalmanFilterPtr_->getState();
   slip_flag_ = abs(x_hat_vel(0) - wheel_vel_aver) > 3.0;
 
   // update state
-  x_left_[3] = state_ != RAW ? x_hat_vel(0) : 0;
-  if (state_ != RAW && abs(x_left_[3]) <= 0.5f && abs(vel_cmd_.x) <= 0.1f)
+  leg_state_[LEFT].x[3] = state_ != RAW ? x_hat_vel(0) : 0;
+  if (state_ != RAW && abs(leg_state_[LEFT].x[3]) <= 0.5f && abs(vel_cmd_.x) <= 0.01f)
   {
-    x_left_[2] += state_ != RAW ? x_left_[3] * period.toSec() : 0;
+    leg_state_[LEFT].x[2] += state_ != RAW ? leg_state_[LEFT].x[3] * period.toSec() : 0;
   }
   else
   {
     setMoveFlag(true);
-    x_left_[2] = 0;
+    leg_state_[LEFT].x[2] = 0.0;
   }
-  x_left_[0] = (left_pos[1] + pitch);
-  x_left_[1] = left_spd[1] + angular_vel_base.y;
-  x_left_[4] = -pitch;
-  x_left_[5] = -angular_vel_base.y;
-  x_right_ = x_left_;
-  x_right_[0] = (right_pos[1] + pitch);
-  x_right_[1] = right_spd[1] + angular_vel_base.y;
+  leg_state_[LEFT].x[0] = (left_pos.theta + pitch);
+  leg_state_[LEFT].x[1] = left_spd.dTheta + angular_vel_base.y;
+  leg_state_[LEFT].x[4] = -pitch;
+  leg_state_[LEFT].x[5] = -angular_vel_base.y;
+  leg_state_[RIGHT].x = leg_state_[LEFT].x;
+  leg_state_[RIGHT].x[0] = (right_pos.theta + pitch);
+  leg_state_[RIGHT].x[1] = right_spd.dTheta + angular_vel_base.y;
+
+  chassis_state_.x_vel = x_hat_vel(0);
 
   if (legged_chassis_status_pub_->trylock())
   {
     legged_chassis_status_pub_->msg_.linear_acc_base.clear();
     legged_chassis_status_pub_->msg_.roll = roll;
-    legged_chassis_status_pub_->msg_.pitch = x_left_[4];
-    legged_chassis_status_pub_->msg_.d_pitch = x_left_[5];
+    legged_chassis_status_pub_->msg_.pitch = leg_state_[LEFT].x[4];
+    legged_chassis_status_pub_->msg_.d_pitch = leg_state_[LEFT].x[5];
     legged_chassis_status_pub_->msg_.yaw = yaw;
     legged_chassis_status_pub_->msg_.d_yaw = angular_vel_base.z;
-    legged_chassis_status_pub_->msg_.left_leg_length = left_pos[0];
-    legged_chassis_status_pub_->msg_.right_leg_length = right_pos[0];
-    legged_chassis_status_pub_->msg_.x = x_left_[2];
-    legged_chassis_status_pub_->msg_.x_dot = x_left_[3];
-    legged_chassis_status_pub_->msg_.left_leg_theta = x_left_[0];
-    legged_chassis_status_pub_->msg_.left_leg_theta_dot = x_left_[1];
-    legged_chassis_status_pub_->msg_.right_leg_theta = x_right_[0];
-    legged_chassis_status_pub_->msg_.right_leg_theta_dot = x_right_[1];
+    legged_chassis_status_pub_->msg_.left_leg_length = left_pos.L0;
+    legged_chassis_status_pub_->msg_.right_leg_length = right_pos.L0;
+    legged_chassis_status_pub_->msg_.x = leg_state_[LEFT].x[2];
+    legged_chassis_status_pub_->msg_.x_dot = leg_state_[LEFT].x[3];
+    legged_chassis_status_pub_->msg_.left_leg_theta = leg_state_[LEFT].x[0];
+    legged_chassis_status_pub_->msg_.left_leg_theta_dot = leg_state_[LEFT].x[1];
+    legged_chassis_status_pub_->msg_.right_leg_theta = leg_state_[RIGHT].x[0];
+    legged_chassis_status_pub_->msg_.right_leg_theta_dot = leg_state_[RIGHT].x[1];
     legged_chassis_status_pub_->msg_.linear_acc_base.push_back(linear_acc_base.x);
     legged_chassis_status_pub_->msg_.linear_acc_base.push_back(linear_acc_base.y);
     legged_chassis_status_pub_->msg_.linear_acc_base.push_back(linear_acc_base.z);
@@ -266,14 +268,10 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
     legged_chassis_mode_pub_->unlockAndPublish();
   }
 
-  mode_manager_->getModeImpl()->updateEstimation(x_left_, x_right_);
-  mode_manager_->getModeImpl()->updateLegKinematics(left_angle, right_angle, left_pos, left_spd, right_pos, right_spd);
-  mode_manager_->getModeImpl()->updateBaseState(angular_vel_base, linear_acc_base, roll, pitch, yaw);
-  mode_manager_->getModeImpl()->updateLegFReal(left_F_real, right_F_real);
-  debugPub_->add("left_spring_force", f_spring_force(left_pos[0]));
-  debugPub_->add("right_spring_force", f_spring_force(right_pos[0]));
-  debugPub_->add("left_F_real", left_F_real[0]);
-  debugPub_->add("right_F_real", right_F_real[0]);
+  debugPub_->add("left_spring_force", f_spring_force(left_pos.L0));
+  debugPub_->add("right_spring_force", f_spring_force(right_pos.L0));
+  debugPub_->add("left_F_real", left_F_real.F);
+  debugPub_->add("right_F_real", right_F_real.F);
   debugPub_->add("wheel_vel_aver", wheel_vel_aver);
   debugPub_->publish();
 }
@@ -294,6 +292,22 @@ void BipedalController::stopping(const ros::Time& time)
   ROS_INFO("[balance] Controller Stop");
 }
 
+bool BipedalController::setupParams(ros::NodeHandle& controller_nh)
+{
+  model_params_ = std::make_shared<ModelParams>();
+  control_params_ = std::make_shared<ControlParams>();
+  bias_params_ = std::make_shared<BiasParams>();
+  leg_threshold_params_ = std::make_shared<LegStateThresholdParams>();
+  spring_params_ = std::make_shared<SpringParams>();
+  chassis_geometry_params_ = std::make_shared<ChassisGeometryParams>();
+
+  if (!setupModelParams(controller_nh) || !setupLQR(controller_nh) || !setupBiasParams(controller_nh) ||
+      !setupControlParams(controller_nh) || !setupThresholdParams(controller_nh) || !setupSpringParams(controller_nh) ||
+      !setupChassisGeometryParams(controller_nh))
+    return false;
+  return true;
+}
+
 bool BipedalController::setupModelParams(ros::NodeHandle& controller_nh)
 {
   const std::pair<const char*, double*> tbl[] = { { "m_w", &model_params_->m_w },
@@ -307,7 +321,6 @@ bool BipedalController::setupModelParams(ros::NodeHandle& controller_nh)
                                                   { "Lm_weight", &model_params_->Lm_weight },
                                                   { "g", &model_params_->g },
                                                   { "wheel_radius", &model_params_->r },
-                                                  { "spring_force", &model_params_->f_spring },
                                                   { "gravity_force", &model_params_->f_gravity } };
 
   for (const auto& e : tbl)
@@ -323,13 +336,29 @@ bool BipedalController::setupModelParams(ros::NodeHandle& controller_nh)
     ROS_ERROR("Param %s or %s not given (namespace: %s)", "l1", "l2", controller_nh.getNamespace().c_str());
     return false;
   }
-  vmc_ = std::make_shared<VMC>(l1, l2);
+  leg_state_[LEFT].vmc = std::make_shared<VMC>(l1, l2);
+  leg_state_[RIGHT].vmc = std::make_shared<VMC>(l1, l2);
 
   if (!controller_nh.getParam("default_leg_length", default_leg_length_))
   {
     ROS_ERROR("Param %s not given (namespace: %s)", "default_leg_length", controller_nh.getNamespace().c_str());
     return false;
   }
+
+  return true;
+}
+
+bool BipedalController::setupChassisGeometryParams(ros::NodeHandle& controller_nh)
+{
+  const std::pair<const char*, double*> tbl[] = { { "wheel_track", &chassis_geometry_params_->wheel_track },
+                                                  { "chassis_high", &chassis_geometry_params_->chassis_height } };
+
+  for (const auto& e : tbl)
+    if (!controller_nh.getParam(e.first, *e.second))
+    {
+      ROS_ERROR("Param %s not given (namespace: %s)", e.first, controller_nh.getNamespace().c_str());
+      return false;
+    }
 
   return true;
 }
@@ -357,7 +386,7 @@ bool BipedalController::setupLQR(ros::NodeHandle& controller_nh)
   std::vector<Eigen::Matrix<double, CONTROL_DIM, STATE_DIM>> ks;
   for (int i = 10; i < 40; i++)
   {
-    double length = i / 100.;
+    double length = i / 100.0f;
     lengths.push_back(length);
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> a{};
     Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> b{};
@@ -369,7 +398,7 @@ bool BipedalController::setupLQR(ros::NodeHandle& controller_nh)
       return false;
     }
     Eigen::Matrix<double, CONTROL_DIM, STATE_DIM> k = lqr.getK();
-    if (length == 20)
+    if (length == 0.2f)
     {
       std::cout << "A: " << std::endl << a << std::endl;
       std::cout << "B: " << std::endl << b << std::endl;
@@ -413,9 +442,7 @@ bool BipedalController::setupBiasParams(ros::NodeHandle& controller_nh)
 // [will unused]
 bool BipedalController::setupControlParams(ros::NodeHandle& controller_nh)
 {
-  if (!controller_nh.getParam("jumpOverTime", control_params_->jumpOverTime_) ||
-      !controller_nh.getParam("p1", control_params_->p1_) || !controller_nh.getParam("p2", control_params_->p2_) ||
-      !controller_nh.getParam("p3", control_params_->p3_) || !controller_nh.getParam("p4", control_params_->p4_))
+  if (!controller_nh.getParam("jumpOverTime", control_params_->jumpOverTime_))
   {
     ROS_ERROR("Load param fail, check the resist of jump_over_time, p1, p2, p3, p4");
     return false;
@@ -425,19 +452,43 @@ bool BipedalController::setupControlParams(ros::NodeHandle& controller_nh)
 
 bool BipedalController::setupThresholdParams(ros::NodeHandle& controller_nh)
 {
-  if (!controller_nh.getParam("under_lower_threshold", leg_threshold_params_->under_lower) ||
-      !controller_nh.getParam("under_upper_threshold", leg_threshold_params_->under_upper) ||
-      !controller_nh.getParam("front_lower_threshold", leg_threshold_params_->front_lower) ||
-      !controller_nh.getParam("front_upper_threshold", leg_threshold_params_->front_upper) ||
-      !controller_nh.getParam("behind_lower_threshold", leg_threshold_params_->behind_lower) ||
-      !controller_nh.getParam("behind_upper_threshold", leg_threshold_params_->behind_upper) ||
-      !controller_nh.getParam("upstair_exit_threshold", leg_threshold_params_->upstair_exit_threshold) ||
-      !controller_nh.getParam("upstair_des_theta", leg_threshold_params_->upstair_des_theta))
-  {
-    ROS_ERROR("Load threshold param fail, check the resist of  "
-              "under_threshold, front_threshold, behind_threshold");
-    return false;
-  }
+  const std::pair<const char*, double*> tbl[] = {
+    { "under_lower_threshold", &leg_threshold_params_->under_lower },
+    { "under_upper_threshold", &leg_threshold_params_->under_upper },
+    { "front_lower_threshold", &leg_threshold_params_->front_lower },
+    { "front_upper_threshold", &leg_threshold_params_->front_upper },
+    { "behind_lower_threshold", &leg_threshold_params_->behind_lower },
+    { "behind_upper_threshold", &leg_threshold_params_->behind_upper },
+    { "upstair_exit_theta_threshold", &leg_threshold_params_->upstair_exit_theta_threshold },
+    { "upstair_exit_length_threshold", &leg_threshold_params_->upstair_exit_length_threshold },
+    { "upstair_des_theta", &leg_threshold_params_->upstair_des_theta },
+    { "upstair_des_length", &leg_threshold_params_->upstair_des_length },
+    { "unstick_threshold", &leg_threshold_params_->unstick_threshold },
+  };
+  for (const auto& e : tbl)
+    if (!controller_nh.getParam(e.first, *e.second))
+    {
+      ROS_ERROR("Param %s not given (namespace: %s)", e.first, controller_nh.getNamespace().c_str());
+      return false;
+    }
+  return true;
+}
+
+bool BipedalController::setupSpringParams(ros::NodeHandle& controller_nh)
+{
+  const std::pair<const char*, double*> tbl[] = {
+    { "spring_s2", &spring_params_->s2 },
+    { "spring_s3", &spring_params_->s3 },
+    { "spring_alpha_s", &spring_params_->alpha_s },
+    { "spring_force", &spring_params_->f_spring },
+  };
+
+  for (const auto& e : tbl)
+    if (!controller_nh.getParam(e.first, *e.second))
+    {
+      ROS_ERROR("Param %s not given (namespace: %s)", e.first, controller_nh.getNamespace().c_str());
+      return false;
+    }
   return true;
 }
 
@@ -460,8 +511,8 @@ geometry_msgs::Twist BipedalController::odometry()
   geometry_msgs::Twist twist;
   if (mode_manager_->getModeImpl() != nullptr)
   {
-    twist.linear.x = mode_manager_->getModeImpl()->getRealxVel();
-    twist.angular.z = mode_manager_->getModeImpl()->getRealYawVel();
+    twist.linear.x = chassis_state_.x_vel;
+    twist.angular.z = chassis_state_.angular_vel.z;
   }
   else
   {
@@ -553,11 +604,6 @@ void BipedalController::reconfigCB(rm_chassis_controllers::LQRWeightConfig& conf
     Eigen::Matrix<double, STATE_DIM, STATE_DIM> a{};
     Eigen::Matrix<double, STATE_DIM, CONTROL_DIM> b{};
     generateAB(model_params_, a, b, length);
-    if (length == 20)
-    {
-      std::cout << "A: " << std::endl << a << std::endl;
-      std::cout << "B: " << std::endl << b << std::endl;
-    }
     Lqr<double> lqr(a, b, q_, r_);
     if (!lqr.computeK())
     {
@@ -584,13 +630,17 @@ void BipedalController::reconfigCB(rm_chassis_controllers::LQRWeightConfig& conf
 
 double BipedalController::f_spring_force(double L0)
 {
-  double l1 = vmc_->getL1(), l2 = vmc_->getL2(), Fs = 0., s2 = 0.0775, s3 = 0.205, alpha_s = 0.2;
+  static double l1 = leg_state_[LEFT].vmc->getL1(), l2 = leg_state_[LEFT].vmc->getL2();
+  static double Fs = spring_params_->f_spring, s2 = spring_params_->s2, s3 = spring_params_->s3,
+                alpha_s = spring_params_->alpha_s;
   double cos_theta3, theta3, ls, Fv;
   cos_theta3 = (l1 * l1 + l2 * l2 - L0 * L0) / (2 * l1 * l2);
   theta3 = acos(cos_theta3);
   ls = sqrt(s2 * s2 + s3 * s3 - 2 * s2 * s3 * cos(theta3 - alpha_s));
   Fv = Fs * (L0 * s2 * s3 * sin(theta3 - alpha_s)) / (ls * l1 * l2 * sin(theta3));
   return Fv;
+
+  //  return ((2094.45f * L0 - 3091.28f) * L0 + 1408.375f) * L0 - 80.91f;
 }
 
 }  // namespace rm_chassis_controllers
