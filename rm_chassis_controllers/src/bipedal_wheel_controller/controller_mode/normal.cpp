@@ -244,12 +244,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   else if (controller->getCompleteStand() && jump_phase_ != JumpPhase::LEG_RETRACTION &&
            controller->getBaseState() == rm_msgs::ChassisCmd::FOLLOW)
   {
-    left_unstick = unstickDetection(last_left_unstick ? F_pid_left : left_leg_state.vmc->getForceReal().F, u_left(1),
-                                    left_spd.dL0, left_pos.L0, chassis_state.linear_acc.z, model_params_,
-                                    left_leg_state.x, leftSupportForceAveragePtr_, period);
+    left_unstick = unstickDetection(last_left_unstick ? F_pid_left : left_leg_state.vmc->getForceReal().F,
+                                    u_left(LEG_Tp), left_spd.dL0, left_pos.L0, chassis_state.linear_acc.z,
+                                    model_params_, left_leg_state.x, leftSupportForceAveragePtr_, period);
     right_unstick = unstickDetection(last_right_unstick ? F_pid_right : right_leg_state.vmc->getForceReal().F,
-                                     u_right(1), right_spd.dL0, right_pos.L0, chassis_state.linear_acc.z, model_params_,
-                                     right_leg_state.x, rightSupportForceAveragePtr_, period);
+                                     u_right(LEG_Tp), right_spd.dL0, right_pos.L0, chassis_state.linear_acc.z,
+                                     model_params_, right_leg_state.x, rightSupportForceAveragePtr_, period);
   }
   bool unstick[2]{};
   unstick[0] = left_unstick;
@@ -278,12 +278,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   // Control
   double left_T[2], right_T[2];
-  left_leg_state.vmc->leg_conv(F_leg[LEFT], u_left(1) + T_theta_diff, left_T);
-  right_leg_state.vmc->leg_conv(F_leg[RIGHT], u_right(1) - T_theta_diff, right_T);
-  double left_wheel_cmd = left_unstick ? 0. : u_left(0) - T_yaw;
-  double right_wheel_cmd = right_unstick ? 0. : u_right(0) + T_yaw;
-  LegCommand left_cmd = { F_leg[LEFT], u_left[1], { left_T[0], left_T[1] } },
-             right_cmd = { F_leg[RIGHT], u_right[1], { right_T[0], right_T[1] } };
+  left_leg_state.vmc->leg_conv(F_leg[LEFT], u_left(LEG_Tp) + T_theta_diff, left_T);
+  right_leg_state.vmc->leg_conv(F_leg[RIGHT], u_right(LEG_Tp) - T_theta_diff, right_T);
+  double left_wheel_cmd = left_unstick ? 0. : u_left(WHEEL_T) - T_yaw;
+  double right_wheel_cmd = right_unstick ? 0. : u_right(WHEEL_T) + T_yaw;
+  LegCommand left_cmd = { F_leg[LEFT], u_left(LEG_Tp) + T_theta_diff, { left_T[0], left_T[1] } },
+             right_cmd = { F_leg[RIGHT], u_right(LEG_Tp) - T_theta_diff, { right_T[0], right_T[1] } };
 
   // upstairs
   //  if (jump_phase_ == JumpPhase::IDLE && linear_acc_base_.z < -7.0 && controller->getCompleteStand() &&

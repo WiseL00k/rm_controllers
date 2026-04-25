@@ -112,8 +112,8 @@ enum Side
 
 enum
 {
-  LEG_T = 0,
-  LEG_Tp
+  WHEEL_T = 0,
+  LEG_Tp,
 };
 
 struct LegState
