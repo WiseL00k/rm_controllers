@@ -43,7 +43,7 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   const auto& left_spd = left_leg_state.vmc->getSpd();
   const auto& right_spd = right_leg_state.vmc->getSpd();
 
-  if (abs(left_leg_state.x[4]) < 0.2 && (abs(left_leg_state.x[0] + right_leg_state.x[0]) / 2.0f) < 0.1)
+  if (abs(left_leg_state.x[PITCH]) < 0.2 && (abs(left_leg_state.x[THETA] + right_leg_state.x[THETA]) / 2.0f) < 0.1)
   {
     protect_flag_ = false;
     if (!controller->getCompleteStand())
@@ -54,13 +54,14 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   auto vel_cmd_ = controller->getVelCmd();
   double current_leg_length = (left_pos.L0 + right_pos.L0) / 2.0f;
-  if (abs(left_leg_state.x[3]) < 0.1f && abs(vel_cmd_.x) < 0.01f)
+  if (abs(chassis_state.x_vel) < 0.1f && abs(vel_cmd_.x) < 0.01f)
   {
     controller->setMoveFlag(false);
     if (x_offset_flag_)
     {
       x_offset_flag_ = false;
-      pos_des_ = current_leg_length * sin(-(left_leg_state.x(0) + right_leg_state.x(0)) / 2.0f) + bias_params_->x;
+      pos_des_ =
+          current_leg_length * sin(-(left_leg_state.x(THETA) + right_leg_state.x(THETA)) / 2.0f) + bias_params_->x;
     }
   }
   if (controller->getMoveFlag())
@@ -68,7 +69,7 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     x_offset_flag_ = true;
   }
 
-  double friction_circle = left_leg_state.x(3) * chassis_state.angular_vel.z;
+  double friction_circle = chassis_state.x_vel * chassis_state.angular_vel.z;
   double friction_circle_alpha = abs(friction_circle) > 3.75f ? (3.75f / abs(friction_circle)) : 1.0f;
   // PID
   double T_yaw = pid_yaw_vel_->computeCommand(friction_circle_alpha * vel_cmd_.z - chassis_state.angular_vel.z, period);
@@ -104,14 +105,14 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   if (controller->getCompleteStand())
   {
-    x_left_ref(2) = x_right_ref(2) = pos_des_;
+    x_left_ref(POS) = x_right_ref(POS) = pos_des_;
     if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
     {
-      x_left_ref(3) = x_right_ref(3) = friction_circle_alpha * vel_cmd_.x;
+      x_left_ref(VEL) = x_right_ref(VEL) = friction_circle_alpha * vel_cmd_.x;
     }
     else
     {
-      x_left_ref(3) = x_right_ref(3) = vel_cmd_.x;
+      x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
     }
     leg_length_des = protect_flag_ ? controller->getDefaultLegLength() : controller->getLegCmd();
   }
@@ -119,10 +120,10 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   {
     leg_length_des = controller->getDefaultLegLength();
   }
-  x_left(0) -= controller->getBaseState() != rm_msgs::ChassisCmd::RAW ? bias_params_->theta : bias_params_->raw_theta;
-  x_right(0) -= controller->getBaseState() != rm_msgs::ChassisCmd::RAW ? bias_params_->theta : bias_params_->raw_theta;
-  x_left(4) -= bias_params_->pitch;
-  x_right(4) -= bias_params_->pitch;
+  x_left(THETA) -=
+      controller->getBaseState() != rm_msgs::ChassisCmd::RAW ? bias_params_->theta : bias_params_->raw_theta;
+  x_right(THETA) -=
+      controller->getBaseState() != rm_msgs::ChassisCmd::RAW ? bias_params_->theta : bias_params_->raw_theta;
 
   x_left -= x_left_ref;
   x_right -= x_right_ref;
@@ -311,12 +312,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     }
   }
   // Protection to sit_down
-  if (abs(x_left(0)) > 1.0 || abs(x_right(0)) > 1.0 || abs(chassis_state.pitch) > 0.6 ||
+  if (abs(x_left(THETA)) > 1.0 || abs(x_right(THETA)) > 1.0 || abs(chassis_state.pitch) > 0.6 ||
       abs(chassis_state.roll) > 0.8 || controller->getOverturn() || abs(theta_diff) > 1.0 ||
       controller->getBaseState() == rm_msgs::ChassisCmd::FALLEN)
   {
     leg_length_des = controller->getDefaultLegLength();
-    left_leg_state.x(2) = right_leg_state.x(2) = 0;
+    left_leg_state.x(POS) = right_leg_state.x(POS) = 0;
     controller->setMode(BalanceMode::SIT_DOWN);
     controller->setStateChange(false);
     controller->setCompleteStand(false);

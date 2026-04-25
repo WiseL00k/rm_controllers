@@ -116,6 +116,16 @@ enum
   LEG_Tp,
 };
 
+enum
+{
+  THETA = 0,
+  D_THETA,
+  POS,
+  VEL,
+  PITCH,
+  D_PITCH,
+};
+
 struct LegState
 {
   Eigen::Matrix<double, STATE_DIM, 1> x;  // LQR状态量
