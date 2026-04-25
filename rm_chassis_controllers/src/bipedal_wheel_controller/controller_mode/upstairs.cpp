@@ -36,7 +36,8 @@ void Upstairs::execute(const ros::Time& time, const ros::Duration& period)
 
   double theta_des_l{ 1.57 }, theta_des_r{ 1.57 }, length_des_l{ 0.18 }, length_des_r{ 0.18 };
   auto model_params_ = controller->getModelParams();
-  double left_spring_force = 0.0, right_spring_force = 0.0;
+  double left_spring_force = -controller->f_spring_force(left_pos.L0),
+         right_spring_force = -controller->f_spring_force(right_pos.L0);
 
   length_des_l = length_des_r = leg_state_threshold_->upstair_des_length;
   theta_des_l = theta_des_r = leg_state_threshold_->upstair_des_theta;
@@ -90,7 +91,7 @@ inline LegCommand Upstairs::computePidLegCommand(double desired_length, double d
                                                  control_toolbox::Pid& length_pid, control_toolbox::Pid& angle_pid,
                                                  control_toolbox::Pid& angle_vel_pid,
                                                  const LegOrientation& leg_orientation, const ros::Duration& period,
-                                                 double feedforward_force)
+                                                 double& feedforward_force)
 {
   LegCommand cmd{ 0.0, 0.0, { 0.0, 0.0 } };
   const auto& leg_pos = vmc_->getPos();

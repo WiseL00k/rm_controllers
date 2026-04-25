@@ -35,7 +35,7 @@ private:
   inline LegCommand computePidLegCommand(double desired_length, double desired_angle, const VMCPtr& vmc_,
                                          control_toolbox::Pid& length_pid, control_toolbox::Pid& angle_pid,
                                          control_toolbox::Pid& angle_vel_pid, const LegOrientation& leg_state,
-                                         const ros::Duration& period, double feedforward_force);
+                                         const ros::Duration& period, double& feedforward_force);
 
   std::vector<hardware_interface::JointHandle*> joint_handles_;
   std::vector<control_toolbox::Pid*> pid_legs_, pid_thetas_;
