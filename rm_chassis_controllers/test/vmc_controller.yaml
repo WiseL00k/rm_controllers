@@ -7,7 +7,7 @@ controllers:
     publish_rate: 100
   vmc_controller:
     type: rm_chassis_controllers/VMCController
-    vmc_bias_angle: 1.57
+    vmc_bias_angle: 0.0
     leg_gravity_compensation_debug: true
     leg_mass: 1.95
     LM_weight: 0.6
