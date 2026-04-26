@@ -134,7 +134,6 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   // Compute leg thrust
   auto model_params_ = controller->getModelParams();
   auto control_params_ = controller->getControlParams();
-  //  auto f_spring_force = [](double l) { return ((2094.45f * l - 3091.28f) * l + 1408.375f) * l - 80.91f; };
   double gravity = model_params_->f_gravity,
          left_spring_force = controller->f_spring_force(left_pos.L0) / cos(left_pos.theta),
          right_spring_force = controller->f_spring_force(right_pos.L0) / cos(right_pos.theta);
@@ -155,9 +154,9 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   if (jump_phase_ == JumpPhase::IDLE)
   {
     static double last_left_length_des = leg_length_des, last_right_length_des = leg_length_des;
-    double left_length_des = controller->getCompleteStand() ? (0.8 * leg_length_des + 0.2 * last_left_length_des) :
+    double left_length_des = controller->getCompleteStand() ? (0.3 * leg_length_des + 0.7 * last_left_length_des) :
                                                               controller->getDefaultLegLength();
-    double right_length_des = controller->getCompleteStand() ? (0.8 * leg_length_des + 0.2 * last_right_length_des) :
+    double right_length_des = controller->getCompleteStand() ? (0.3 * leg_length_des + 0.7 * last_right_length_des) :
                                                                controller->getDefaultLegLength();
     last_left_length_des = left_length_des;
     last_right_length_des = right_length_des;
