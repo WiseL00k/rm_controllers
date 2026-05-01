@@ -50,16 +50,16 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
     legCmd_ = msg->leg_length;
     jumpCmd_ = msg->jump;
   };
-  leg_cmd_sub_ = controller_nh.subscribe<rm_msgs::LegCmd>("/leg_cmd", 10, legCmdCallback);
+  leg_cmd_sub_ = controller_nh.subscribe<rm_msgs::LegCmd>("/leg_cmd", 5, legCmdCallback);
 
   unstick_pub_ = controller_nh.advertise<std_msgs::Bool>("unstick", 1);
   upstair_status_pub_ = controller_nh.advertise<rm_msgs::LeggedUpstairStatus>("upstair_status", 1);
-  legged_chassis_status_pub_.reset((
-      new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisStatus>(controller_nh, "legged_chassis_status", 10)));
+  legged_chassis_status_pub_.reset(
+      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisStatus>(controller_nh, "legged_chassis_status", 1)));
   legged_chassis_mode_pub_.reset(
-      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisMode>(controller_nh, "legged_chassis_mode", 10)));
+      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisMode>(controller_nh, "legged_chassis_mode", 1)));
   lqr_status_pub_.reset(
-      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedLQRStatus>(controller_nh, "lqr_status", 10)));
+      (new realtime_tools::RealtimePublisher<rm_msgs::LeggedLQRStatus>(controller_nh, "lqr_status", 1)));
   leg_state_[LEFT].x.setZero();
   leg_state_[RIGHT].x.setZero();
 
@@ -162,16 +162,16 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
 
   //  double left_pos[2]{}, left_spd[2]{}, right_pos[2]{}, right_spd[2]{};
   // [0]:hip_vmc_joint [1]:knee_vmc_joint
-  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
-  //  left_angle[1] = left_knee_joint_handle_.getPosition();
-  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
-  //  right_angle[1] = right_knee_joint_handle_.getPosition();
+  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
+  left_angle[1] = left_knee_joint_handle_.getPosition();
+  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
+  right_angle[1] = right_knee_joint_handle_.getPosition();
 
   //  gazebo
-  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
-  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
-  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
-  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
+  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
+  //  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
+  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
+  //  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
 
   // left vmc calc
   leg_state_[LEFT].vmc->calc_jacobian(left_angle[0], left_angle[1]);
@@ -220,6 +220,7 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
 
   // update state
   leg_state_[LEFT].x[3] = state_ != RAW ? x_hat_vel(0) : 0;
+  //  leg_state_[LEFT].x[3] = state_ != RAW ? wheel_vel_aver : 0;
   if (state_ != RAW && abs(leg_state_[LEFT].x[3]) <= 0.5f && abs(vel_cmd_.x) <= 0.01f)
   {
     leg_state_[LEFT].x[2] += state_ != RAW ? leg_state_[LEFT].x[3] * period.toSec() : 0;
