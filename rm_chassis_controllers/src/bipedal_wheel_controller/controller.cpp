@@ -64,7 +64,7 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
   leg_state_[RIGHT].x.setZero();
 
   // Slippage detection
-  A_ << 1, 0.0, 0, 1;
+  A_ << 1, 0.001f, 0, 1;
   H_ << 1, 0, 0, 1;
   Q_ << 1, 0, 0, 1;
   R_ << 200, 0, 0, 200;
@@ -204,9 +204,11 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
   R_(0, 0) = slip_flag_ ? slip_R_wheel_ : R_wheel_;
   if (itor >= sample_times_)
   {  // oversampling
+    static double last_linear_acc_base_x = linear_acc_base.x;
     itor = 0;
     X_(0) = wheel_vel_aver;
-    X_(1) = linear_acc_base.x;
+    X_(1) = 0.2 * last_linear_acc_base_x + 0.8 * linear_acc_base.x;
+    last_linear_acc_base_x = X_(1);
     kalmanFilterPtr_->predict(U_);
     kalmanFilterPtr_->update(X_, R_);
   }

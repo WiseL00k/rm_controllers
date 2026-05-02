@@ -120,7 +120,7 @@ private:
   // Slippage_detection
   double leftWheelVel{}, rightWheelVel{}, leftWheelVelAbsolute{}, rightWheelVelAbsolute{}, slip_alpha_{ 2.0 },
       slip_R_wheel_{}, R_wheel_{};
-  int itor = 0, sample_times_ = 2;
+  int itor = 0, sample_times_ = 0;
   bool slip_flag_{ false };
   Eigen::Matrix<double, 2, 2> A_, B_, H_, Q_, R_;
   Eigen::Matrix<double, 2, 1> X_, U_;
