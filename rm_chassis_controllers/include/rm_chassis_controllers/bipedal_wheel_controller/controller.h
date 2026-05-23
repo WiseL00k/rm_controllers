@@ -85,9 +85,12 @@ public:
   void pubLegLenStatus(const bool& upstair_flag) override;
   void clearStatus() override;
   void pubDebugData(const std::string& name, double value) override{ debugPub_->add(name, value); };
+  void setRecoveryLegSpdTurnback(bool recovery_leg_spd_turnback) override { recovery_leg_spd_turnback_ = recovery_leg_spd_turnback; }
+  bool getRecoveryLegSpdTurnback() const override { return recovery_leg_spd_turnback_;}
   // clang-format on
 private:
   void updateEstimation(const ros::Time& time, const ros::Duration& period);
+
   bool setupLQR(ros::NodeHandle& controller_nh);
   bool setupParams(ros::NodeHandle& controller_nh);
   bool setupModelParams(ros::NodeHandle& controller_nh);
@@ -129,10 +132,12 @@ private:
   ChassisState chassis_state_;
   LegState leg_state_[2];
   //  Eigen::Matrix<double, STATE_DIM, 1> x_left_{}, x_right_{};
-  double default_leg_length_{ 0.13 };
+  double default_leg_length_{ 0.12 };
   bool move_flag_{ false };
   // stand up
   bool complete_stand_ = false, overturn_ = false;
+  // recovery
+  bool recovery_leg_spd_turnback_{ false };
 
   // handles
   hardware_interface::ImuSensorHandle imu_handle_, gimbal_imu_handle_;
@@ -150,7 +155,7 @@ private:
   realtime_tools::RealtimeBuffer<LQRConfig> config_rt_buffer_;
   LQRConfig config_{};
   bool dynamic_reconfig_initialized_{ false };
-  ros::Subscriber leg_cmd_sub_;
+  ros::Subscriber leg_cmd_sub_, recovery_leg_spd_turnback_sub_;
   ros::Publisher unstick_pub_, upstair_status_pub_;
   std::shared_ptr<realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisStatus>> legged_chassis_status_pub_;
   std::shared_ptr<realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisMode>> legged_chassis_mode_pub_;

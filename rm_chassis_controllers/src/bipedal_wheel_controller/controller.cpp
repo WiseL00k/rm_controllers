@@ -50,10 +50,13 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
     legCmd_ = msg->leg_length;
     jumpCmd_ = msg->jump;
   };
+  auto recoveryLegSpdTurnbackCb = [this](const std_msgs::Bool::ConstPtr& msg) { setRecoveryLegSpdTurnback(msg->data); };
   leg_cmd_sub_ = controller_nh.subscribe<rm_msgs::LegCmd>("/leg_cmd", 5, legCmdCallback);
-
+  recovery_leg_spd_turnback_sub_ =
+      controller_nh.subscribe<std_msgs::Bool>("/recovery_leg_spd_turnback", 1, recoveryLegSpdTurnbackCb);
   unstick_pub_ = controller_nh.advertise<std_msgs::Bool>("unstick", 1);
   upstair_status_pub_ = controller_nh.advertise<rm_msgs::LeggedUpstairStatus>("upstair_status", 1);
+
   legged_chassis_status_pub_.reset(
       (new realtime_tools::RealtimePublisher<rm_msgs::LeggedChassisStatus>(controller_nh, "legged_chassis_status", 1)));
   legged_chassis_mode_pub_.reset(
@@ -162,16 +165,16 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
 
   //  double left_pos[2]{}, left_spd[2]{}, right_pos[2]{}, right_spd[2]{};
   // [0]:hip_vmc_joint [1]:knee_vmc_joint
-  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
-  //  left_angle[1] = left_knee_joint_handle_.getPosition();
-  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
-  //  right_angle[1] = right_knee_joint_handle_.getPosition();
+  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
+  left_angle[1] = left_knee_joint_handle_.getPosition();
+  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
+  right_angle[1] = right_knee_joint_handle_.getPosition();
 
   //  gazebo
-  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
-  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
-  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
-  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
+  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
+  //  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
+  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
+  //  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
 
   // left vmc calc
   leg_state_[LEFT].vmc->calc_jacobian(left_angle[0], left_angle[1]);
@@ -447,7 +450,7 @@ bool BipedalController::setupControlParams(ros::NodeHandle& controller_nh)
 {
   if (!controller_nh.getParam("jumpOverTime", control_params_->jumpOverTime_))
   {
-    ROS_ERROR("Load param fail, check the resist of jump_over_time, p1, p2, p3, p4");
+    ROS_ERROR("Load param fail, check the resist of jump_over_time");
     return false;
   }
   return true;
@@ -467,6 +470,7 @@ bool BipedalController::setupThresholdParams(ros::NodeHandle& controller_nh)
     { "upstair_des_theta", &leg_threshold_params_->upstair_des_theta },
     { "upstair_des_length", &leg_threshold_params_->upstair_des_length },
     { "unstick_threshold", &leg_threshold_params_->unstick_threshold },
+    { "arrive_time_threshold", &leg_threshold_params_->arrive_time_threshold }
   };
   for (const auto& e : tbl)
     if (!controller_nh.getParam(e.first, *e.second))

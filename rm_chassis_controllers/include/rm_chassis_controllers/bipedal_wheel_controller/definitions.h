@@ -71,6 +71,7 @@ struct LegStateThresholdParams
   double upstair_exit_theta_threshold;
   double upstair_exit_length_threshold;
   double unstick_threshold;
+  double arrive_time_threshold;
 };
 
 struct LegCommand
@@ -102,6 +103,7 @@ enum BalanceMode
   SIT_DOWN,
   RECOVER,
   UPSTAIRS,
+  PROTECT
 };
 
 enum Side

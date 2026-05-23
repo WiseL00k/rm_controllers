@@ -50,5 +50,10 @@ ModeManager::ModeManager(BipedalControllerInterface* controller, ros::NodeHandle
       std::make_pair(BalanceMode::SIT_DOWN, std::make_unique<SitDown>(controller, joint_handles, pid_wheels_)));
   mode_map_.insert(std::make_pair(BalanceMode::UPSTAIRS, std::make_unique<Upstairs>(controller, joint_handles,
                                                                                     pid_legs_stand_up_, pid_thetas_)));
+  mode_map_.insert(std::make_pair(BalanceMode::UPSTAIRS, std::make_unique<Upstairs>(controller, joint_handles,
+                                                                                    pid_legs_stand_up_, pid_thetas_)));
+  mode_map_.insert(
+      std::make_pair(BalanceMode::PROTECT, std::make_unique<Protect>(controller, joint_handles, pid_legs_, pid_thetas_,
+                                                                     pid_wheels_, &pid_theta_diff_, &pid_yaw_vel_)));
 }
 }  // namespace rm_chassis_controllers

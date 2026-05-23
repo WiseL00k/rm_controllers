@@ -12,6 +12,7 @@
 #include "bipedal_wheel_controller/controller_mode/recover.h"
 #include "bipedal_wheel_controller/controller_mode/normal.h"
 #include "bipedal_wheel_controller/controller_mode/upstairs.h"
+#include "bipedal_wheel_controller/controller_mode/protect.h"
 #include "bipedal_wheel_controller/controller_interface.h"
 
 namespace rm_chassis_controllers

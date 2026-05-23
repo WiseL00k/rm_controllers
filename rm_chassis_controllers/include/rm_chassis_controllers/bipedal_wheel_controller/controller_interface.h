@@ -48,6 +48,8 @@ public:
   virtual void pubLegLenStatus(const bool& upstair_flag) = 0;
   virtual void clearStatus() = 0;
   virtual void pubDebugData(const std::string& name, double value) = 0;
+  virtual bool getRecoveryLegSpdTurnback() const = 0;
+  virtual void setRecoveryLegSpdTurnback(bool recovery_leg_spd_turnback) = 0;
 };
 
 }  // namespace rm_chassis_controllers
