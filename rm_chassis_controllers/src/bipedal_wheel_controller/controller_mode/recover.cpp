@@ -43,6 +43,7 @@ void Recover::execute(const ros::Time& time, const ros::Duration& period)
     detectLegRecoveryState(left_recovery_leg, left_pos.theta);
     detectLegRecoveryState(right_recovery_leg, right_pos.theta);
     detectd_flag = true;
+    controller->setRecoveryLegSpdTurnback(false);
     leg_recovery_velocity_ =
         recovery_chassis_state_ == BackwardSlip ? -leg_recovery_velocity_const_ : leg_recovery_velocity_const_;
   }
@@ -50,23 +51,35 @@ void Recover::execute(const ros::Time& time, const ros::Duration& period)
   LegCommand left_cmd = { 0, 0, { 0., 0. } }, right_cmd = { 0, 0, { 0., 0. } };
   leg_theta_diff_ = angles::shortest_angular_distance(left_pos.theta, right_pos.theta);
   double T_theta_diff{ 0.0 }, feedforward_force{ 0.0 };
-  if (controller->getBaseState() != 4)
+  if (controller->getBaseState() != 4 && detectd_flag)
   {
     left_cmd.force = pid_legs_[0]->computeCommand(desired_leg_length_ - left_pos.L0, period) + feedforward_force;
     right_cmd.force = pid_legs_[1]->computeCommand(desired_leg_length_ - right_pos.L0, period) + feedforward_force;
+
+    if (controller->getRecoveryLegSpdTurnback())
+    {
+      controller->setRecoveryLegSpdTurnback(false);
+      leg_recovery_velocity_ = -leg_recovery_velocity_;
+    }
     if (chassis_state_.roll < -0.5)
     {
       left_cmd.torque = pid_thetas_[2]->computeCommand(leg_recovery_velocity_ - left_spd.dTheta, period);
       right_cmd.torque = pid_thetas_[3]->computeCommand(0 - right_spd.dTheta, period);
-      left_leg_state.vmc->leg_conv(left_cmd.force, leg_recovery_velocity_ + left_cmd.torque, left_cmd.input);
-      right_leg_state.vmc->leg_conv(right_cmd.force, leg_recovery_velocity_ + right_cmd.torque, right_cmd.input);
+      left_leg_recovery_feed_forward = 2 * leg_recovery_velocity_;
+      right_leg_recovery_feed_forward = 0.0f;
+      left_leg_state.vmc->leg_conv(left_cmd.force, left_leg_recovery_feed_forward + left_cmd.torque, left_cmd.input);
+      right_leg_state.vmc->leg_conv(right_cmd.force, right_leg_recovery_feed_forward + right_cmd.torque,
+                                    right_cmd.input);
     }
     else if (chassis_state_.roll > 0.5)
     {
       left_cmd.torque = pid_thetas_[2]->computeCommand(0 - left_spd.dTheta, period);
       right_cmd.torque = pid_thetas_[3]->computeCommand(leg_recovery_velocity_ - right_spd.dTheta, period);
-      left_leg_state.vmc->leg_conv(left_cmd.force, leg_recovery_velocity_ + left_cmd.torque, left_cmd.input);
-      right_leg_state.vmc->leg_conv(right_cmd.force, leg_recovery_velocity_ + right_cmd.torque, right_cmd.input);
+      left_leg_recovery_feed_forward = 0.0f;
+      right_leg_recovery_feed_forward = 2 * leg_recovery_velocity_;
+      left_leg_state.vmc->leg_conv(left_cmd.force, left_leg_recovery_feed_forward + left_cmd.torque, left_cmd.input);
+      right_leg_state.vmc->leg_conv(right_cmd.force, right_leg_recovery_feed_forward + right_cmd.torque,
+                                    right_cmd.input);
     }
     else
     {
@@ -76,8 +89,11 @@ void Recover::execute(const ros::Time& time, const ros::Duration& period)
         detectLegRecoveryState(right_recovery_leg, right_pos.theta);
         left_cmd.torque = pid_thetas_[2]->computeCommand(leg_recovery_velocity_ - left_spd.dTheta, period);
         right_cmd.torque = pid_thetas_[3]->computeCommand(0 - right_spd.dTheta, period);
-        left_leg_state.vmc->leg_conv(left_cmd.force, leg_recovery_velocity_ + left_cmd.torque, left_cmd.input);
-        right_leg_state.vmc->leg_conv(right_cmd.force, leg_recovery_velocity_ + right_cmd.torque, right_cmd.input);
+        left_leg_recovery_feed_forward = 2 * leg_recovery_velocity_;
+        right_leg_recovery_feed_forward = 0.0f;
+        left_leg_state.vmc->leg_conv(left_cmd.force, left_leg_recovery_feed_forward + left_cmd.torque, left_cmd.input);
+        right_leg_state.vmc->leg_conv(right_cmd.force, right_leg_recovery_feed_forward + right_cmd.torque,
+                                      right_cmd.input);
       }
       if (left_recovery_leg == Ready && right_recovery_leg == NotReady)
       {
@@ -85,8 +101,11 @@ void Recover::execute(const ros::Time& time, const ros::Duration& period)
         detectLegRecoveryState(right_recovery_leg, right_pos.theta);
         left_cmd.torque = pid_thetas_[2]->computeCommand(0 - left_spd.dTheta, period);
         right_cmd.torque = pid_thetas_[3]->computeCommand(leg_recovery_velocity_ - right_spd.dTheta, period);
-        left_leg_state.vmc->leg_conv(left_cmd.force, leg_recovery_velocity_ + left_cmd.torque, left_cmd.input);
-        right_leg_state.vmc->leg_conv(right_cmd.force, leg_recovery_velocity_ + right_cmd.torque, right_cmd.input);
+        left_leg_recovery_feed_forward = 0.0f;
+        right_leg_recovery_feed_forward = 2 * leg_recovery_velocity_;
+        left_leg_state.vmc->leg_conv(left_cmd.force, left_leg_recovery_feed_forward + left_cmd.torque, left_cmd.input);
+        right_leg_state.vmc->leg_conv(right_cmd.force, right_leg_recovery_feed_forward + right_cmd.torque,
+                                      right_cmd.input);
       }
       if (abs(leg_theta_diff_) < 0.4)
       {
@@ -98,10 +117,12 @@ void Recover::execute(const ros::Time& time, const ros::Duration& period)
           detectLegRecoveryState(right_recovery_leg, right_pos.theta);
           left_cmd.torque = pid_thetas_[2]->computeCommand(leg_recovery_velocity_ - left_spd.dTheta, period);
           right_cmd.torque = pid_thetas_[3]->computeCommand(leg_recovery_velocity_ - right_spd.dTheta, period);
-          left_leg_state.vmc->leg_conv(left_cmd.force, leg_recovery_velocity_ + left_cmd.torque + T_theta_diff,
+          left_leg_recovery_feed_forward = 2 * leg_recovery_velocity_;
+          right_leg_recovery_feed_forward = left_leg_recovery_feed_forward;
+          left_leg_state.vmc->leg_conv(left_cmd.force, left_leg_recovery_feed_forward + left_cmd.torque + T_theta_diff,
                                        left_cmd.input);
-          right_leg_state.vmc->leg_conv(right_cmd.force, leg_recovery_velocity_ + right_cmd.torque - T_theta_diff,
-                                        right_cmd.input);
+          right_leg_state.vmc->leg_conv(
+              right_cmd.force, right_leg_recovery_feed_forward + right_cmd.torque - T_theta_diff, right_cmd.input);
         }
       }
     }
@@ -123,12 +144,12 @@ void Recover::detectChassisStateToRecover()
   // pitch_ is base_link pitch not model pitch
   if (chassis_state_.pitch > 0.45 && chassis_state_.pitch < M_PI)
   {
-    ROS_DEBUG("forward");
+    ROS_INFO("forward");
     recovery_chassis_state_ = RecoveryChassisState::ForwardSlip;
   }
   else if (chassis_state_.pitch < -0.45 && chassis_state_.pitch > -M_PI)
   {
-    ROS_DEBUG("back");
+    ROS_INFO("back");
     recovery_chassis_state_ = RecoveryChassisState::BackwardSlip;
   }
 }
