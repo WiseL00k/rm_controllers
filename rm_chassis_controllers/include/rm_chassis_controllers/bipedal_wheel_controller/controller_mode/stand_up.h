@@ -35,7 +35,7 @@ public:
 private:
   void setUpLegMotion(const Eigen::Matrix<double, STATE_DIM, 1>& x, const LegOrientation& other_leg_orientation,
                       const double& leg_length, const double& leg_theta, LegOrientation& leg_orientation,
-                      StandUpLegCommand& legCommand, bool& stop_flag);
+                      StandUpLegCommand& legCommand, bool& stop_flag, bool& arrive_flag, ros::Time arrive_time);
   /**
    * Detect the leg state before stand up: UNDER, FRONT, BEHIND
    * @param x
@@ -66,6 +66,8 @@ private:
   StandUpLegCommand left_leg_command_, right_leg_command_;
   bool left_stop_{ false }, right_stop_{ false };
   std::shared_ptr<LegStateThresholdParams> leg_state_threshold_;
+  ros::Time left_arrive_time_, right_arrive_time_;
+  bool left_arrive_flag_{ false }, right_arrive_flag_{ false };
   VMCPtr vmcPtr_;
   std::shared_ptr<RampFilter<double>> ramp_length_des_l_, ramp_length_des_r_, ramp_angle_des_l_, ramp_angle_des_r_;
 };

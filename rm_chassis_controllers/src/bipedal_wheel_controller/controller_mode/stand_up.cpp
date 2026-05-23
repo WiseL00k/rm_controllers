@@ -14,7 +14,7 @@ StandUp::StandUp(BipedalControllerInterface* controller_,
                  const std::vector<control_toolbox::Pid*>& pid_thetas)
   : ModeBase(controller_), joint_handles_(joint_handles), pid_legs_(pid_legs), pid_thetas_(pid_thetas)
 {
-  double leg_len_acc = 20, leg_theta_acc = 10;
+  double leg_len_acc = 20, leg_theta_acc = 5;
   ramp_length_des_l_ = std::make_shared<RampFilter<double>>(leg_len_acc, 0.001);
   ramp_length_des_r_ = std::make_shared<RampFilter<double>>(leg_len_acc, 0.001);
   ramp_angle_des_l_ = std::make_shared<RampFilter<double>>(leg_theta_acc, 0.001);
@@ -32,7 +32,7 @@ void StandUp::execute(const ros::Time& time, const ros::Duration& period)
     controller->setCompleteStand(false);
     leg_state_threshold_ = controller->getLegThresholdParams();
     //    vmcPtr_ = controller->getVMCPtr();
-
+    left_arrive_flag_ = right_arrive_flag_ = false;
     StandUp::detectLegState(left_leg_state.x, left_leg_orientation);
     StandUp::detectLegState(right_leg_state.x, right_leg_orientation);
   }
@@ -45,9 +45,9 @@ void StandUp::execute(const ros::Time& time, const ros::Duration& period)
          right_spring_force = -controller->f_spring_force(right_pos.L0);
   LegCommand left_cmd = { 0, 0, { 0., 0. } }, right_cmd = { 0, 0, { 0., 0. } };
   setUpLegMotion(left_leg_state.x, right_leg_orientation, left_pos.L0, left_pos.theta, left_leg_orientation,
-                 left_leg_command_, left_stop_);
+                 left_leg_command_, left_stop_, left_arrive_flag_, left_arrive_time_);
   setUpLegMotion(right_leg_state.x, left_leg_orientation, right_pos.L0, right_pos.theta, right_leg_orientation,
-                 right_leg_command_, right_stop_);
+                 right_leg_command_, right_stop_, right_arrive_flag_, right_arrive_time_);
 
   ramp_length_des_l_->input(left_leg_command_.desired_length);
   ramp_angle_des_l_->input(left_leg_command_.desired_angle);
@@ -91,37 +91,44 @@ void StandUp::execute(const ros::Time& time, const ros::Duration& period)
 
 void StandUp::setUpLegMotion(const Eigen::Matrix<double, STATE_DIM, 1>& x, const LegOrientation& other_leg_orientation,
                              const double& leg_length, const double& leg_theta, LegOrientation& leg_orientation,
-                             StandUpLegCommand& legCommand, bool& stop_flag)
+                             StandUpLegCommand& legCommand, bool& stop_flag, bool& arrive_flag, ros::Time arrive_time)
 {
   switch (leg_orientation)
   {
     case LegOrientation::UNDER:
       stop_flag = false;
-      //      legCommand.desired_angle = -M_PI_2;
-      //      legCommand.desired_length = 0.34;
-      //      if (leg_length > 0.33)
-      //      {
-      //        leg_orientation = LegOrientation::FRONT;
-      //      }
-      legCommand.desired_length = 0.12f;
-      legCommand.desired_angle = 0.0f;
+      legCommand.desired_angle = leg_theta;
+      legCommand.desired_length = 0.34;
+      if (leg_length > 0.33)
+      {
+        leg_orientation = LegOrientation::FRONT;
+      }
       break;
     case LegOrientation::FRONT:
       stop_flag = false;
+      if (!arrive_flag)
+        arrive_flag = false;
       legCommand.desired_angle = M_PI_2 - 0.35;
       legCommand.desired_length = 0.34;
       legCommand.desired_angle_vel = 0.0;
       if (leg_length > 0.30)
         legCommand.desired_angle_vel = -5.0;
-      if (abs(legCommand.desired_angle - leg_theta) < 0.4)
+      if (abs(legCommand.desired_angle - leg_theta) < 0.5)
       {
-        legCommand.desired_angle_vel = -1.0;
+        legCommand.desired_angle_vel = -1.5f;
       }
       if (abs(x[1]) < 0.1)
       {
-        if (x[0] > 0 && x[0] < M_PI_2 + 0.5)
+        if (x[0] > 0 && x[0] < M_PI_2 + 0.4f)
         {
-          leg_orientation = LegOrientation::BEHIND;
+          legCommand.desired_angle_vel = -0.5f;
+          if (!arrive_flag)
+          {
+            arrive_flag = true;
+            arrive_time = ros::Time::now();
+          }
+          if ((ros::Time::now() - arrive_time).toSec() > leg_state_threshold_->arrive_time_threshold)
+            leg_orientation = LegOrientation::BEHIND;
         }
       }
       break;
@@ -134,15 +141,10 @@ void StandUp::setUpLegMotion(const Eigen::Matrix<double, STATE_DIM, 1>& x, const
         stop_flag = false;
 
         legCommand.desired_length = 0.12f;
-        //        legCommand.desired_angle = leg_theta;
-        //        if (leg_length < 0.24f)
         legCommand.desired_angle = 0.0f;
+        //        legCommand.desired_angle = leg_theta;
         //        double h = controller->getChassisGeometryParams()->chassis_height;
         //        legCommand.desired_angle = acos(h / leg_length);
-        //        if (abs(leg_theta) < 1.1)
-        //        {
-        //          legCommand.desired_angle = 0.0;
-        //        }
       }
       break;
   }
