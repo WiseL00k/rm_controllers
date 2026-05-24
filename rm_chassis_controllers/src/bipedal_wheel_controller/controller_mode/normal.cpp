@@ -145,6 +145,14 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   x_left -= x_left_ref;
   x_right -= x_right_ref;
 
+  clamp(x_left(VEL), -1.5f, 1.5f);
+  clamp(x_right(VEL), -1.5f, 1.5f);
+
+  const double k_pitch = -0.1f, b = 0.35f;
+  double pitch_error_clamp = k_pitch * chassis_state.x_vel + b;
+  clamp(x_left(PITCH), -pitch_error_clamp, pitch_error_clamp);
+  clamp(x_right(PITCH), -pitch_error_clamp, pitch_error_clamp);
+
   u_left = k_left * (-x_left);
   u_right = k_right * (-x_right);
 
@@ -309,6 +317,7 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     controller->setMode(BalanceMode::UPSTAIRS);
     controller->setStateChange(false);
     controller->setJumpCmd(false);
+    controller->setCompleteStand(false);
     left_wheel_cmd = right_wheel_cmd = 0;
     ROS_INFO("[balance] Exit NORMAL");
   }
@@ -319,7 +328,7 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     if ((abs(x_left(0)) > 0.6f || abs(x_right(0)) > 0.6f || abs(chassis_state.pitch) > 0.4 ||
          abs(chassis_state.roll) > 0.4) ||
         (abs(u_left(0)) + abs(u_right(0)) / 2.0f > 30.0f) ||
-        (abs(chassis_state.x_vel - x_left_ref(VEL)) > 2.3f && abs(chassis_state.x_vel - vel_cmd_.x) > 2.3f))
+        (abs(chassis_state.x_vel - x_left_ref(VEL)) > 5.0f && abs(chassis_state.x_vel - vel_cmd_.x) > 5.0f))
     {
       protect_flag_ = true;
       leg_length_des = controller->getDefaultLegLength();
@@ -337,7 +346,6 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       abs(chassis_state.roll) > 0.8 || controller->getOverturn() || abs(theta_diff) > 1.0 ||
       controller->getBaseState() == rm_msgs::ChassisCmd::FALLEN)
   {
-    leg_length_des = controller->getDefaultLegLength();
     left_leg_state.x(POS) = right_leg_state.x(POS) = 0;
     controller->setMode(BalanceMode::SIT_DOWN);
     controller->setStateChange(false);

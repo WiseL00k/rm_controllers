@@ -123,4 +123,12 @@ inline void quatToRPY(const geometry_msgs::Quaternion& q, double& roll, double& 
   roll = std::atan2(2 * (q.y * q.z + q.w * q.x), q.w * q.w - q.x * q.x - q.y * q.y + q.z * q.z);
 }
 
+inline void clamp(double& val, const double& minVal, const double& maxVal)
+{
+  if (val < minVal)
+    val = minVal;
+  if (val > maxVal)
+    val = maxVal;
+}
+
 }  // namespace rm_chassis_controllers
