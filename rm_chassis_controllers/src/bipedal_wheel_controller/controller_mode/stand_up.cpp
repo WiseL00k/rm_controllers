@@ -14,7 +14,7 @@ StandUp::StandUp(BipedalControllerInterface* controller_,
                  const std::vector<control_toolbox::Pid*>& pid_thetas)
   : ModeBase(controller_), joint_handles_(joint_handles), pid_legs_(pid_legs), pid_thetas_(pid_thetas)
 {
-  double leg_len_acc = 20, leg_theta_acc = 5;
+  double leg_len_acc = 50, leg_theta_acc = 7.5;
   ramp_length_des_l_ = std::make_shared<RampFilter<double>>(leg_len_acc, 0.001);
   ramp_length_des_r_ = std::make_shared<RampFilter<double>>(leg_len_acc, 0.001);
   ramp_angle_des_l_ = std::make_shared<RampFilter<double>>(leg_theta_acc, 0.001);
