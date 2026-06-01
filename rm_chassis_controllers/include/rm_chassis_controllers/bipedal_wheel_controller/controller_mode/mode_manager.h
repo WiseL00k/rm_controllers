@@ -39,7 +39,7 @@ private:
   control_toolbox::Pid pid_yaw_vel_, pid_left_leg_, pid_right_leg_, pid_theta_diff_, pid_roll_;
   control_toolbox::Pid pid_left_leg_stand_up_, pid_right_leg_stand_up_;
   control_toolbox::Pid pid_left_leg_theta_, pid_right_leg_theta_, pid_left_leg_theta_vel_, pid_right_leg_theta_vel_;
-  control_toolbox::Pid pid_left_wheel_vel_, pid_right_wheel_vel_;
+  control_toolbox::Pid pid_left_wheel_vel_, pid_right_wheel_vel_, pid_wheel_vel_diff_;
   std::vector<control_toolbox::Pid*> pid_wheels_, pid_legs_, pid_thetas_, pid_legs_stand_up_;
 };
 }  // namespace rm_chassis_controllers

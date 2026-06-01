@@ -10,13 +10,15 @@ namespace rm_chassis_controllers
 Normal::Normal(BipedalControllerInterface* controller_,
                const std::vector<hardware_interface::JointHandle*>& joint_handles,
                const std::vector<control_toolbox::Pid*>& pid_legs, control_toolbox::Pid* pid_yaw_vel,
-               control_toolbox::Pid* pid_theta_diff, control_toolbox::Pid* pid_roll)
+               control_toolbox::Pid* pid_theta_diff, control_toolbox::Pid* pid_roll,
+               control_toolbox::Pid* pid_wheel_vel_diff)
   : ModeBase(controller_)
   , joint_handles_(joint_handles)
   , pid_legs_(pid_legs)
   , pid_yaw_vel_(pid_yaw_vel)
   , pid_theta_diff_(pid_theta_diff)
   , pid_roll_(pid_roll)
+  , pid_wheel_vel_diff_(pid_wheel_vel_diff)
 {
   leftSupportForceAveragePtr_ = std::make_shared<MovingAverageFilter<double>>(4);
   rightSupportForceAveragePtr_ = std::make_shared<MovingAverageFilter<double>>(4);
@@ -104,15 +106,16 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   if (controller->getCompleteStand())
   {
-    x_left_ref(POS) = x_right_ref(POS) = pos_des_;
     if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
     {
+      x_left_ref(POS) = x_right_ref(POS) = pos_des_;
       x_left_ref(VEL) = x_right_ref(VEL) = friction_circle_alpha * vel_cmd_.x;
     }
     else
     {
       // raw move but  bug
       //      x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
+      x_left_ref(POS) = x_right_ref(POS) = 0.0f;
       x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
     }
     if (protect_flag_)
@@ -145,13 +148,15 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   x_left -= x_left_ref;
   x_right -= x_right_ref;
 
-  clamp(x_left(VEL), -1.5f, 1.5f);
-  clamp(x_right(VEL), -1.5f, 1.5f);
+  clamp(x_left(VEL), -1.2f, 1.2f);
+  clamp(x_right(VEL), -1.2f, 1.2f);
 
   const double k_pitch = -0.1f, b = 0.35f;
   double pitch_error_clamp = k_pitch * chassis_state.x_vel + b;
   clamp(x_left(PITCH), -pitch_error_clamp, pitch_error_clamp);
   clamp(x_right(PITCH), -pitch_error_clamp, pitch_error_clamp);
+  clamp(x_left(THETA), -0.6f, 0.6f);
+  clamp(x_right(THETA), -0.6f, 0.6f);
 
   u_left = k_left * (-x_left);
   u_right = k_right * (-x_right);
@@ -159,13 +164,14 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   // Compute leg thrust
   auto model_params_ = controller->getModelParams();
   auto control_params_ = controller->getControlParams();
+  double wheel_vel_diff = abs(joint_handles_[4]->getVelocity()) - abs(joint_handles_[5]->getVelocity());
   double gravity = model_params_->f_gravity, left_spring_force = controller->f_spring_force(left_pos.L0),
          right_spring_force = controller->f_spring_force(right_pos.L0);
   double F_inertia_left =
       model_params_->M * friction_circle * left_pos.L0 / controller->getChassisGeometryParams()->wheel_track;
   double F_inertia_right =
       model_params_->M * friction_circle * right_pos.L0 / controller->getChassisGeometryParams()->wheel_track;
-  double F_pid_left{}, F_pid_right{};
+  double F_pid_left{}, F_pid_right{}, T_wheel_diff{};
   Eigen::Matrix<double, 2, 1> F_leg;
   F_leg.setZero();
   // check jump
@@ -190,6 +196,9 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     F_pid_right = abs(F_pid_right) > 150 ? std::copysign(1, F_pid_right) * 150 : F_pid_right;
     F_leg[LEFT] = F_pid_left - F_inertia_left + gravity / cos(left_pos.theta) + F_roll - left_spring_force;
     F_leg[RIGHT] = F_pid_right + F_inertia_right + gravity / cos(right_pos.theta) - F_roll - right_spring_force;
+    T_wheel_diff = controller->getBaseState() == rm_msgs::ChassisCmd::RAW ?
+                       pid_wheel_vel_diff_->computeCommand(wheel_vel_diff, period) :
+                       0.0f;
   }
   else
   {
@@ -301,15 +310,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   double left_T[2], right_T[2];
   left_leg_state.vmc->leg_conv(F_leg[LEFT], u_left(LEG_Tp) + T_theta_diff, left_T);
   right_leg_state.vmc->leg_conv(F_leg[RIGHT], u_right(LEG_Tp) - T_theta_diff, right_T);
-  double left_wheel_cmd = unstick_flag ? 0. : u_left(WHEEL_T) - T_yaw;
-  double right_wheel_cmd = unstick_flag ? 0. : u_right(WHEEL_T) + T_yaw;
+  double left_wheel_cmd = unstick_flag ? 0. : u_left(WHEEL_T) - T_yaw - T_wheel_diff;
+  double right_wheel_cmd = unstick_flag ? 0. : u_right(WHEEL_T) + T_yaw - T_wheel_diff;
   LegCommand left_cmd = { F_leg[LEFT], u_left(LEG_Tp) + T_theta_diff, { left_T[0], left_T[1] } },
              right_cmd = { F_leg[RIGHT], u_right(LEG_Tp) - T_theta_diff, { right_T[0], right_T[1] } };
 
   // upstairs
-  //  if (jump_phase_ == JumpPhase::IDLE && linear_acc_base_.z < -7.0 && controller->getCompleteStand() &&
-  //      abs(vel_cmd_.x) > 0.1 && abs(x_left(3)) > 0.1 && ((left_pos_[0] + right_pos_[0]) / 2.0f) > 0.30 &&
-  //      leg_length_des > 0.30)
   if (jump_phase_ == JumpPhase::IDLE && controller->getCompleteStand() && abs(x_left(0) + x_right(0)) / 2.0f > 0.50 &&
       abs(vel_cmd_.x) > 0.1 && abs(x_left(3)) > 0.1 && ((left_pos.L0 + right_pos.L0) / 2.0f) > 0.30 &&
       leg_length_des > 0.30)

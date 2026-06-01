@@ -19,7 +19,8 @@ class Normal : public ModeBase
 public:
   Normal(BipedalControllerInterface* controller_, const std::vector<hardware_interface::JointHandle*>& joint_handles,
          const std::vector<control_toolbox::Pid*>& pid_legs, control_toolbox::Pid* pid_yaw_vel,
-         control_toolbox::Pid* pid_theta_diff, control_toolbox::Pid* pid_roll);
+         control_toolbox::Pid* pid_theta_diff, control_toolbox::Pid* pid_roll,
+         control_toolbox::Pid* pid_wheel_vel_diff);
   void execute(const ros::Time& time, const ros::Duration& period) override;
   const char* name() const override
   {
@@ -37,7 +38,7 @@ private:
                         const ros::Duration& period);
   std::vector<hardware_interface::JointHandle*> joint_handles_;
   std::vector<control_toolbox::Pid*> pid_legs_;
-  control_toolbox::Pid *pid_yaw_vel_, *pid_theta_diff_, *pid_roll_;
+  control_toolbox::Pid *pid_yaw_vel_, *pid_theta_diff_, *pid_roll_, *pid_wheel_vel_diff_;
   ros::Time lastJumpTime_{};
 
   double pos_des_{ 0.0 }, leg_length_des{ 0.2 };

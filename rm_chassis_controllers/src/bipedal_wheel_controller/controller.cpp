@@ -165,16 +165,16 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
 
   //  double left_pos[2]{}, left_spd[2]{}, right_pos[2]{}, right_spd[2]{};
   // [0]:hip_vmc_joint [1]:knee_vmc_joint
-  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
-  left_angle[1] = left_knee_joint_handle_.getPosition();
-  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
-  right_angle[1] = right_knee_joint_handle_.getPosition();
+  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
+  //  left_angle[1] = left_knee_joint_handle_.getPosition();
+  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
+  //  right_angle[1] = right_knee_joint_handle_.getPosition();
 
   //  gazebo
-  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
-  //  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
-  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
-  //  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
+  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
+  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
+  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
+  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
 
   // left vmc calc
   leg_state_[LEFT].vmc->calc_jacobian(left_angle[0], left_angle[1]);
