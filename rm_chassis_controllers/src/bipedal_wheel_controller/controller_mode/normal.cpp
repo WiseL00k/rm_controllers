@@ -66,10 +66,6 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
           current_leg_length * sin(-(left_leg_state.x(THETA) + right_leg_state.x(THETA)) / 2.0f) + bias_params_->x;
     }
   }
-  if (controller->getMoveFlag())
-  {
-    x_offset_flag_ = true;
-  }
 
   double friction_circle = chassis_state.x_vel * chassis_state.angular_vel.z;
   double friction_circle_alpha = abs(friction_circle) > 10.0f ? (10.0f / abs(friction_circle)) : 1.0f;
@@ -106,16 +102,16 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   if (controller->getCompleteStand())
   {
+    x_left_ref(POS) = x_right_ref(POS) = pos_des_;
     if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
     {
-      x_left_ref(POS) = x_right_ref(POS) = pos_des_;
       x_left_ref(VEL) = x_right_ref(VEL) = friction_circle_alpha * vel_cmd_.x;
     }
     else
     {
       // raw move but  bug
       //      x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
-      x_left_ref(POS) = x_right_ref(POS) = 0.0f;
+      //      x_left_ref(POS) = x_right_ref(POS) = 0.0f;
       x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
     }
     if (protect_flag_)
@@ -134,8 +130,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   }
   if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
   {
-    x_left(THETA) -= bias_params_->theta;
-    x_right(THETA) -= bias_params_->theta;
+    if (!controller->getMoveFlag())
+    {
+      x_offset_flag_ = true;
+      x_left(THETA) -= bias_params_->theta;
+      x_right(THETA) -= bias_params_->theta;
+    }
   }
   else
   {
@@ -227,8 +227,8 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       }
       case JumpPhase::JUMP_UP:
         ROS_INFO("[balance] ENTER JUMP_UP");
-        F_leg(0) = 225 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
-        F_leg(1) = 225 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
+        F_leg(0) = 300 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
+        F_leg(1) = 300 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
         if (current_leg_length > leg_length_des)
         {
           jumpTime_++;
@@ -243,8 +243,8 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
         ROS_INFO("[balance] ENTER OFF_GROUND");
         double s_left_flip = 1 - s_left;
         double s_right_flip = 1 - s_left;
-        F_leg(0) = -75 * (1 - 3 * pow(s_left_flip, 2) + 2 * pow(s_left_flip, 3)) - left_spring_force;
-        F_leg(1) = -75 * (1 - 3 * pow(s_right_flip, 2) + 2 * pow(s_right_flip, 3)) - right_spring_force;
+        F_leg(0) = -175 * (1 - 3 * pow(s_left_flip, 2) + 2 * pow(s_left_flip, 3)) - left_spring_force;
+        F_leg(1) = -175 * (1 - 3 * pow(s_right_flip, 2) + 2 * pow(s_right_flip, 3)) - right_spring_force;
 
         if (current_leg_length < leg_length_des + 0.02f)
         {
