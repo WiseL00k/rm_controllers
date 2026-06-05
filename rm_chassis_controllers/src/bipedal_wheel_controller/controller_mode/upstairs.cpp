@@ -51,8 +51,8 @@ void Upstairs::execute(const ros::Time& time, const ros::Duration& period)
   // Exit
   if (left_pos.theta > leg_state_threshold_->upstair_exit_theta_threshold &&
       right_pos.theta > leg_state_threshold_->upstair_exit_theta_threshold &&
-      left_pos.L0 > leg_state_threshold_->upstair_exit_length_threshold &&
-      right_pos.L0 > leg_state_threshold_->upstair_exit_length_threshold)
+      left_pos.L0 < leg_state_threshold_->upstair_exit_length_threshold &&
+      right_pos.L0 < leg_state_threshold_->upstair_exit_length_threshold)
   {
     controller->pubLegLenStatus(true);
     controller->setMode(BalanceMode::STAND_UP);
