@@ -250,7 +250,7 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
         {
           jumpTime_++;
         }
-        if (jumpTime_ >= 50)
+        if (jumpTime_ >= 100)
         {
           jumpTime_ = 0;
           jump_phase_ = JumpPhase::IDLE;
