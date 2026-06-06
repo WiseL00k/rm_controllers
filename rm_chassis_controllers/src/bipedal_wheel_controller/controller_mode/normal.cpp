@@ -107,10 +107,19 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   if (controller->getCompleteStand())
   {
-    x_left_ref(POS) = x_right_ref(POS) = pos_des_;
     if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
     {
       x_left_ref(VEL) = x_right_ref(VEL) = friction_circle_alpha * vel_cmd_.x;
+      x_left(THETA) -= bias_params_->theta;
+      x_right(THETA) -= bias_params_->theta;
+      if (!controller->getMoveFlag())
+      {
+        x_offset_flag_ = true;
+      }
+      else
+      {
+        pos_des_ = bias_params_->x;
+      }
     }
     else
     {
@@ -118,7 +127,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       //      x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
       //      x_left_ref(POS) = x_right_ref(POS) = 0.0f;
       x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
+      x_left(THETA) -= bias_params_->raw_theta;
+      x_right(THETA) -= bias_params_->raw_theta;
+      x_left(PITCH) -= bias_params_->raw_pitch;
+      x_right(PITCH) -= bias_params_->raw_pitch;
     }
+    x_left_ref(POS) = x_right_ref(POS) = pos_des_;
     if (protect_flag_)
     {
       x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
@@ -132,22 +146,6 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   else
   {
     leg_length_des = controller->getDefaultLegLength();
-  }
-  if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
-  {
-    if (!controller->getMoveFlag())
-    {
-      x_offset_flag_ = true;
-    }
-    x_left(THETA) -= bias_params_->theta;
-    x_right(THETA) -= bias_params_->theta;
-  }
-  else
-  {
-    x_left(THETA) -= bias_params_->raw_theta;
-    x_right(THETA) -= bias_params_->raw_theta;
-    x_left(PITCH) -= bias_params_->raw_pitch;
-    x_right(PITCH) -= bias_params_->raw_pitch;
   }
 
   x_left -= x_left_ref;
