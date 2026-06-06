@@ -56,14 +56,19 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
 
   auto vel_cmd_ = controller->getVelCmd();
   double current_leg_length = (left_pos.L0 + right_pos.L0) / 2.0f;
+  static double last_vel_cmd_x = vel_cmd_.x;
+  vel_direction_ = (vel_cmd_.x - last_vel_cmd_x) > 0 ?
+                       VEL_DIRECTION::POSITIVE :
+                       (vel_cmd_.x - last_vel_cmd_x) < 0 ? VEL_DIRECTION::NEGATIVE : vel_direction_;
+  last_vel_cmd_x = vel_cmd_.x;
   if (abs(chassis_state.x_vel) < 0.1f && abs(vel_cmd_.x) < 0.01f)
   {
     controller->setMoveFlag(false);
     if (x_offset_flag_)
     {
       x_offset_flag_ = false;
-      pos_des_ =
-          current_leg_length * sin(-(left_leg_state.x(THETA) + right_leg_state.x(THETA)) / 2.0f) + bias_params_->x;
+      pos_des_ = current_leg_length * sin(-(left_leg_state.x(THETA) + right_leg_state.x(THETA)) / 2.0f) +
+                 vel_direction_ * bias_params_->x;
     }
   }
 
@@ -133,9 +138,9 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     if (!controller->getMoveFlag())
     {
       x_offset_flag_ = true;
-      x_left(THETA) -= bias_params_->theta;
-      x_right(THETA) -= bias_params_->theta;
     }
+    x_left(THETA) -= bias_params_->theta;
+    x_right(THETA) -= bias_params_->theta;
   }
   else
   {
@@ -148,8 +153,8 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   x_left -= x_left_ref;
   x_right -= x_right_ref;
 
-  clamp(x_left(VEL), -1.2f, 1.2f);
-  clamp(x_right(VEL), -1.2f, 1.2f);
+  clamp(x_left(VEL), -1.1f, 1.1f);
+  clamp(x_right(VEL), -1.1f, 1.1f);
 
   const double k_pitch = -0.1f, b = 0.35f;
   double pitch_error_clamp = k_pitch * chassis_state.x_vel + b;
