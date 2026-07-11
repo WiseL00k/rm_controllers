@@ -36,6 +36,8 @@ public:
   virtual void setMoveFlag(const bool& move_flag) = 0;
   virtual const ChassisState& getChassisState() = 0;
   virtual LegState& getLegState(Side side) = 0;
+  virtual bool getDown5cmStairFlag() const = 0;
+  virtual void setDown5cmStairFlag(bool flag) = 0;
   virtual void setCompleteStand(bool state) = 0;
   virtual void setJumpCmd(bool cmd) = 0;
   virtual double f_spring_force(double L0) = 0;

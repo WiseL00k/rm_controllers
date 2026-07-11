@@ -110,8 +110,9 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     if (controller->getBaseState() != rm_msgs::ChassisCmd::RAW)
     {
       x_left_ref(VEL) = x_right_ref(VEL) = friction_circle_alpha * vel_cmd_.x;
-      x_left(THETA) -= bias_params_->theta;
-      x_right(THETA) -= bias_params_->theta;
+      double theta_bias = bias_params_->theta;
+      x_left(THETA) -= theta_bias;
+      x_right(THETA) -= theta_bias;
       if (!controller->getMoveFlag())
       {
         x_offset_flag_ = true;
@@ -123,10 +124,10 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     }
     else
     {
-      // raw move but  bug
-      //      x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
-      //      x_left_ref(POS) = x_right_ref(POS) = 0.0f;
-      x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
+      // raw move but bug
+      x_left_ref(POS) = x_right_ref(POS) = 0.0f;
+      x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
+      //      x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
       x_left(THETA) -= bias_params_->raw_theta;
       x_right(THETA) -= bias_params_->raw_theta;
       x_left(PITCH) -= bias_params_->raw_pitch;
@@ -200,7 +201,7 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
     F_leg[LEFT] = F_pid_left - F_inertia_left + gravity / cos(left_pos.theta) + F_roll - left_spring_force;
     F_leg[RIGHT] = F_pid_right + F_inertia_right + gravity / cos(right_pos.theta) - F_roll - right_spring_force;
     T_wheel_diff = controller->getBaseState() == rm_msgs::ChassisCmd::RAW ?
-                       pid_wheel_vel_diff_->computeCommand(wheel_vel_diff, period) :
+                       std::copysign(1, vel_cmd_.z) * (pid_wheel_vel_diff_->computeCommand(wheel_vel_diff, period)) :
                        0.0f;
   }
   else
@@ -213,9 +214,9 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       case JumpPhase::LEG_RETRACTION:
       {
         ROS_INFO("[balance] ENTER LEG_RETRACTION");
-        F_leg(LEFT) = pid_legs_[LEFT]->computeCommand(leg_length_des - current_leg_length, period) +
+        F_leg(LEFT) = pid_legs_[LEFT]->computeCommand((leg_length_des - 0.02f) - current_leg_length, period) +
                       gravity / cos(left_pos.theta) + F_roll - left_spring_force;
-        F_leg(RIGHT) = pid_legs_[RIGHT]->computeCommand(leg_length_des - current_leg_length, period) +
+        F_leg(RIGHT) = pid_legs_[RIGHT]->computeCommand((leg_length_des - 0.02f) - current_leg_length, period) +
                        gravity / cos(right_pos.theta) - F_roll - right_spring_force;
         if (current_leg_length < leg_length_des + 0.02f)
         {
@@ -230,13 +231,13 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       }
       case JumpPhase::JUMP_UP:
         ROS_INFO("[balance] ENTER JUMP_UP");
-        F_leg(0) = 300 * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
-        F_leg(1) = 300 * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
-        if (current_leg_length > leg_length_des)
+        F_leg(LEFT) = control_params_->jump_up_force * (1 - 3 * pow(s_left, 2) + 2 * pow(s_left, 3)) + gravity;
+        F_leg(RIGHT) = control_params_->jump_up_force * (1 - 3 * pow(s_right, 2) + 2 * pow(s_right, 3)) + gravity;
+        if (current_leg_length > leg_length_des - 0.01f)
         {
           jumpTime_++;
         }
-        if (jumpTime_ >= 2)
+        if (jumpTime_ >= 4)
         {
           jumpTime_ = 0;
           jump_phase_ = JumpPhase::OFF_GROUND;
@@ -246,10 +247,12 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
         ROS_INFO("[balance] ENTER OFF_GROUND");
         double s_left_flip = 1 - s_left;
         double s_right_flip = 1 - s_left;
-        F_leg(0) = -175 * (1 - 3 * pow(s_left_flip, 2) + 2 * pow(s_left_flip, 3)) - left_spring_force;
-        F_leg(1) = -175 * (1 - 3 * pow(s_right_flip, 2) + 2 * pow(s_right_flip, 3)) - right_spring_force;
+        F_leg(LEFT) = -control_params_->off_ground_force * (1 - 3 * pow(s_left_flip, 2) + 2 * pow(s_left_flip, 3)) -
+                      left_spring_force;
+        F_leg(RIGHT) = -control_params_->off_ground_force * (1 - 3 * pow(s_right_flip, 2) + 2 * pow(s_right_flip, 3)) -
+                       right_spring_force;
 
-        if (current_leg_length < leg_length_des + 0.02f)
+        if (current_leg_length < leg_length_des + 0.03f)
         {
           jumpTime_++;
         }
@@ -350,16 +353,22 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       ROS_INFO("[balance] Exit NORMAL");
     }
   }
+
+  double enter_sitdown_theta_threshold =
+      controller->getDown5cmStairFlag() ? control_params_->down5cmStairThetaThreshold : 1.0;
+  double enter_sitdown_pitch_threshold =
+      controller->getDown5cmStairFlag() ? control_params_->down5cmStairPitchThreshold : 0.6;
   // Protection to sit_down
-  if (abs(x_left(THETA)) > 1.0 || abs(x_right(THETA)) > 1.0 || abs(chassis_state.pitch) > 0.6 ||
-      abs(chassis_state.roll) > 0.8 || controller->getOverturn() || abs(theta_diff) > 1.0 ||
-      controller->getBaseState() == rm_msgs::ChassisCmd::FALLEN)
+  if (abs(x_left(THETA)) > enter_sitdown_theta_threshold || abs(x_right(THETA)) > enter_sitdown_theta_threshold ||
+      abs(chassis_state.pitch) > enter_sitdown_pitch_threshold || abs(chassis_state.roll) > 0.8 ||
+      controller->getOverturn() || abs(theta_diff) > 1.0 || controller->getBaseState() == rm_msgs::ChassisCmd::FALLEN)
   {
     left_leg_state.x(POS) = right_leg_state.x(POS) = 0;
     controller->setMode(BalanceMode::SIT_DOWN);
     controller->setStateChange(false);
     controller->setCompleteStand(false);
     controller->setJumpCmd(false);
+    controller->setDown5cmStairFlag(false);
     setJointCommands(joint_handles_, { 0, 0, { 0., 0. } }, { 0, 0, { 0., 0. } });
     ROS_INFO("[balance] Exit NORMAL");
   }

@@ -81,7 +81,19 @@ bool BipedalController::init(hardware_interface::RobotHW* robot_hw, ros::NodeHan
   kalmanFilterPtr_ = std::make_shared<KalmanFilter<double>>(A_, B_, H_, Q_, R_);
   kalmanFilterPtr_->clear(X_);
 
+  down_5cm_stair_srv_ =
+      controller_nh.advertiseService("/down_5cm_stair", &BipedalController::down5cmStairSrvCallback, this);
+
   debugPub_ = std::make_shared<DebugDataPublisher>(controller_nh, "debug_data");
+  return true;
+}
+
+bool BipedalController::down5cmStairSrvCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res)
+{
+  (void)req;
+  triggerDown5cmStairAction();
+  res.message = "down_5cm_stair flag set";
+  res.success = true;
   return true;
 }
 
@@ -448,11 +460,19 @@ bool BipedalController::setupBiasParams(ros::NodeHandle& controller_nh)
 // [will unused]
 bool BipedalController::setupControlParams(ros::NodeHandle& controller_nh)
 {
-  if (!controller_nh.getParam("jumpOverTime", control_params_->jumpOverTime_))
-  {
-    ROS_ERROR("Load param fail, check the resist of jump_over_time");
-    return false;
-  }
+  const std::pair<const char*, double*> tbl[] = {
+    { "jumpOverTime", &control_params_->jumpOverTime_ },
+    { "down5cmStairPitchThreshold", &control_params_->down5cmStairPitchThreshold },
+    { "down5cmStairThetaThreshold", &control_params_->down5cmStairThetaThreshold },
+    { "jump_up_force", &control_params_->jump_up_force },
+    { "off_ground_force", &control_params_->off_ground_force }
+  };
+  for (const auto& e : tbl)
+    if (!controller_nh.getParam(e.first, *e.second))
+    {
+      ROS_ERROR("Param %s not given (namespace: %s)", e.first, controller_nh.getNamespace().c_str());
+      return false;
+    }
   return true;
 }
 
@@ -587,6 +607,9 @@ void BipedalController::reconfigCB(rm_chassis_controllers::LQRWeightConfig& conf
     config.Q_d_phi = init_config.Q_d_phi;
     config.R_T = init_config.R_T;
     config.R_Tp = init_config.R_Tp;
+    config.x_bias = bias_params_->x;
+    config.theta_bias = bias_params_->theta;
+    config.raw_theta_bias = bias_params_->raw_theta;
     dynamic_reconfig_initialized_ = true;
   }
   LQRConfig config_non_rt{ .Q_theta = config.Q_theta,
@@ -633,6 +656,10 @@ void BipedalController::reconfigCB(rm_chassis_controllers::LQRWeightConfig& conf
     }
   }
   std::cout << "len: 0.2m LQR k: " << std::endl << k << std::endl;
+
+  bias_params_->x = config.x_bias;
+  bias_params_->theta = config.theta_bias;
+  bias_params_->raw_theta = config.raw_theta_bias;
 }
 
 double BipedalController::f_spring_force(double L0)
