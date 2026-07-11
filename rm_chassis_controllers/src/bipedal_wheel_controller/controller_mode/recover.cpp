@@ -35,7 +35,7 @@ void Recover::execute(const ros::Time& time, const ros::Duration& period)
   const auto& left_spd = left_leg_state.vmc->getSpd();
   const auto& right_spd = right_leg_state.vmc->getSpd();
 
-  // until chassis
+  // until chassis static
   if (!detectd_flag && abs(left_leg_state.x[1]) < 0.2 && abs(right_leg_state.x[5]) < 0.2 &&
       abs(chassis_state_.angular_vel.y) < 0.1)
   {
