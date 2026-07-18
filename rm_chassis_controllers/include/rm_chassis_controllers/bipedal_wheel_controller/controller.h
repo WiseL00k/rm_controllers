@@ -14,6 +14,7 @@
 #include <rm_common/filters/kalman_filter.h>
 #include <rm_common/filters/lp_filter.h>
 #include <rm_common/DebugDataPublisher.h>
+#include <rm_common/linear_interpolation.h>
 #include <control_toolbox/pid.h>
 #include <controller_interface/multi_interface_controller.h>
 #include <geometry_msgs/TwistStamped.h>
@@ -91,6 +92,7 @@ public:
   void pubDebugData(const std::string& name, double value) override{ debugPub_->add(name, value); };
   void setRecoveryLegSpdTurnback(bool recovery_leg_spd_turnback) override { recovery_leg_spd_turnback_ = recovery_leg_spd_turnback; }
   bool getRecoveryLegSpdTurnback() const override { return recovery_leg_spd_turnback_;}
+  double getLegThetaOffset(const double& leg_len) override { return leg_theta_offset_interp_.output(leg_len); }
   // clang-format on
 private:
   void updateEstimation(const ros::Time& time, const ros::Duration& period);
@@ -140,7 +142,8 @@ private:
 
   ChassisState chassis_state_;
   LegState leg_state_[2];
-  //  Eigen::Matrix<double, STATE_DIM, 1> x_left_{}, x_right_{};
+  // leg_theta_offset
+  rm_common::LinearInterp leg_theta_offset_interp_;
   double default_leg_length_{ 0.12 };
   bool move_flag_{ false };
   std::atomic_bool down_5cm_stair_flag_{ false };

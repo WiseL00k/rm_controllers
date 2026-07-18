@@ -454,6 +454,13 @@ bool BipedalController::setupBiasParams(ros::NodeHandle& controller_nh)
       ROS_ERROR("Param %s not given (namespace: %s)", e.first, controller_nh.getNamespace().c_str());
       return false;
     }
+  XmlRpc::XmlRpcValue xml_rpc_value;
+  if (!controller_nh.getParam("leg_theta_offset", xml_rpc_value))
+  {
+    ROS_ERROR("Param %s not given (namespace: %s)", "leg_theta_offset", controller_nh.getNamespace().c_str());
+    return false;
+  }
+  leg_theta_offset_interp_.init(xml_rpc_value);
   return true;
 }
 

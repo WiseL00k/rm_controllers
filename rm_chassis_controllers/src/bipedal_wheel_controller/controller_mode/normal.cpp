@@ -128,8 +128,11 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
       x_left_ref(POS) = x_right_ref(POS) = 0.0f;
       x_left_ref(VEL) = x_right_ref(VEL) = vel_cmd_.x;
       //      x_left_ref(VEL) = x_right_ref(VEL) = 0.0f;
-      x_left(THETA) -= bias_params_->raw_theta;
-      x_right(THETA) -= bias_params_->raw_theta;
+      const double leg_theta_offset = controller->getLegThetaOffset(current_leg_length);
+      // x_left(THETA) -= bias_params_->raw_theta;
+      // x_right(THETA) -= bias_params_->raw_theta;
+      x_left(THETA) -= leg_theta_offset;
+      x_right(THETA) -= leg_theta_offset;
       x_left(PITCH) -= bias_params_->raw_pitch;
       x_right(PITCH) -= bias_params_->raw_pitch;
     }

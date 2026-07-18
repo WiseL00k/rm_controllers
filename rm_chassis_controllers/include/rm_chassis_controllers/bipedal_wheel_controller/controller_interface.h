@@ -52,6 +52,7 @@ public:
   virtual void pubDebugData(const std::string& name, double value) = 0;
   virtual bool getRecoveryLegSpdTurnback() const = 0;
   virtual void setRecoveryLegSpdTurnback(bool recovery_leg_spd_turnback) = 0;
+  virtual double getLegThetaOffset(const double& leg_len) = 0;
 };
 
 }  // namespace rm_chassis_controllers
