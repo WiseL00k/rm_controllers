@@ -57,9 +57,9 @@ void Normal::execute(const ros::Time& time, const ros::Duration& period)
   auto vel_cmd_ = controller->getVelCmd();
   double current_leg_length = (left_pos.L0 + right_pos.L0) / 2.0f;
   static double last_vel_cmd_x = vel_cmd_.x;
-  vel_direction_ = (vel_cmd_.x - last_vel_cmd_x) > 0 ?
-                       VEL_DIRECTION::POSITIVE :
-                       (vel_cmd_.x - last_vel_cmd_x) < 0 ? VEL_DIRECTION::NEGATIVE : vel_direction_;
+  vel_direction_ = (vel_cmd_.x - last_vel_cmd_x) > 0 ? VEL_DIRECTION::POSITIVE :
+                   (vel_cmd_.x - last_vel_cmd_x) < 0 ? VEL_DIRECTION::NEGATIVE :
+                                                       vel_direction_;
   last_vel_cmd_x = vel_cmd_.x;
   if (abs(chassis_state.x_vel) < 0.1f && abs(vel_cmd_.x) < 0.01f)
   {
