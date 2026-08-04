@@ -25,6 +25,7 @@
 #include <std_msgs/Bool.h>
 #include <std_srvs/Trigger.h>
 #include <atomic>
+#include <string>
 #include "rm_chassis_controllers/chassis_base.h"
 #include <dynamic_reconfigure/server.h>
 #include <rm_chassis_controllers/LQRWeightConfig.h>

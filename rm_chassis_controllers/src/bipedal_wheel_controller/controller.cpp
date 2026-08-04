@@ -3,6 +3,8 @@
 //
 
 #include "bipedal_wheel_controller/controller.h"
+#include "bipedal_wheel_controller/vmc/FiveLinkVMC.h"
+#include "bipedal_wheel_controller/vmc/TwoLinkVMC.h"
 
 #include <angles/angles.h>
 #include <geometry_msgs/Quaternion.h>
@@ -177,16 +179,16 @@ void BipedalController::updateEstimation(const ros::Time& time, const ros::Durat
 
   //  double left_pos[2]{}, left_spd[2]{}, right_pos[2]{}, right_spd[2]{};
   // [0]:hip_vmc_joint [1]:knee_vmc_joint
-  //  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
-  //  left_angle[1] = left_knee_joint_handle_.getPosition();
-  //  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
-  //  right_angle[1] = right_knee_joint_handle_.getPosition();
+  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI;
+  left_angle[1] = left_knee_joint_handle_.getPosition();
+  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI;
+  right_angle[1] = right_knee_joint_handle_.getPosition();
 
   //  gazebo
-  left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
-  left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
-  right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
-  right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
+  // left_angle[0] = left_hip_joint_handle_.getPosition() + M_PI_2;
+  // left_angle[1] = left_knee_joint_handle_.getPosition() - M_PI_2;
+  // right_angle[0] = right_hip_joint_handle_.getPosition() + M_PI_2;
+  // right_angle[1] = right_knee_joint_handle_.getPosition() - M_PI_2;
 
   // left vmc calc
   leg_state_[LEFT].vmc->calc_jacobian(left_angle[0], left_angle[1]);
@@ -354,8 +356,33 @@ bool BipedalController::setupModelParams(ros::NodeHandle& controller_nh)
     ROS_ERROR("Param %s or %s not given (namespace: %s)", "l1", "l2", controller_nh.getNamespace().c_str());
     return false;
   }
-  leg_state_[LEFT].vmc = std::make_shared<VMC>(l1, l2);
-  leg_state_[RIGHT].vmc = std::make_shared<VMC>(l1, l2);
+
+  const std::string vmc_type = controller_nh.param<std::string>("vmc_type", "two_link");
+  if (vmc_type == "two_link")
+  {
+    leg_state_[LEFT].vmc = std::make_shared<TwoLinkVMC>(l1, l2);
+    leg_state_[RIGHT].vmc = std::make_shared<TwoLinkVMC>(l1, l2);
+  }
+  else if (vmc_type == "five_link")
+  {
+    double l3, l4, l5;
+    if (!controller_nh.getParam("l3", l3) || !controller_nh.getParam("l4", l4) ||
+        !controller_nh.getParam("l5", l5))
+    {
+      ROS_ERROR("Params l3, l4 and l5 are required for five_link VMC (namespace: %s)",
+                controller_nh.getNamespace().c_str());
+      return false;
+    }
+    leg_state_[LEFT].vmc = std::make_shared<FiveLinkVMC>(l1, l2, l3, l4, l5);
+    leg_state_[RIGHT].vmc = std::make_shared<FiveLinkVMC>(l1, l2, l3, l4, l5);
+  }
+  else
+  {
+    ROS_ERROR("Unsupported vmc_type '%s'; expected 'two_link' or 'five_link' (namespace: %s)", vmc_type.c_str(),
+              controller_nh.getNamespace().c_str());
+    return false;
+  }
+  ROS_INFO("Using %s VMC", vmc_type.c_str());
 
   if (!controller_nh.getParam("default_leg_length", default_leg_length_))
   {
