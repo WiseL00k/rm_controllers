@@ -366,8 +366,7 @@ bool BipedalController::setupModelParams(ros::NodeHandle& controller_nh)
   else if (vmc_type == "five_link")
   {
     double l3, l4, l5;
-    if (!controller_nh.getParam("l3", l3) || !controller_nh.getParam("l4", l4) ||
-        !controller_nh.getParam("l5", l5))
+    if (!controller_nh.getParam("l3", l3) || !controller_nh.getParam("l4", l4) || !controller_nh.getParam("l5", l5))
     {
       ROS_ERROR("Params l3, l4 and l5 are required for five_link VMC (namespace: %s)",
                 controller_nh.getNamespace().c_str());
